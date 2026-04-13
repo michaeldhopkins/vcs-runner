@@ -1,0 +1,40 @@
+[package]
+name = "vcs-runner"
+version = "0.5.0"
+edition = "2024"
+rust-version = "1.91"
+description = "Subprocess runner for jj and git with retry, repo detection, and structured jj output parsing"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/michaeldhopkins/vcs-runner"
+homepage = "https://github.com/michaeldhopkins/vcs-runner"
+readme = "README.md"
+keywords = ["jujutsu", "jj", "git", "subprocess", "vcs"]
+categories = ["development-tools"]
+
+[features]
+default = ["jj-parse"]
+jj-parse = ["dep:serde", "dep:serde_json"]
+
+[dependencies]
+anyhow = "1"
+backon = { version = "1", default-features = false, features = ["std", "std-blocking-sleep"] }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints.clippy]
+struct-excessive-bools = "deny"
+fn-params-excessive-bools = "deny"
+collapsible-if = "deny"
+too-many-arguments = "deny"
+needless-range-loop = "deny"
+extend_with_drain = "deny"
+unwrap_used = "deny"
+match_bool = "warn"
+bool_to_int_with_if = "warn"
+cognitive-complexity = "warn"
+too-many-lines = "warn"
