@@ -108,6 +108,29 @@ pub struct GitRemote {
     pub url: String,
 }
 
+/// The kind of change a file underwent in a diff.
+#[cfg(any(feature = "jj-parse", feature = "git-parse"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FileChangeKind {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    Copied,
+}
+
+/// A single file change in a diff summary.
+///
+/// `from_path` is populated only for `Renamed` and `Copied` — it records
+/// the previous/source path. `path` is always the resulting path.
+#[cfg(any(feature = "jj-parse", feature = "git-parse"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileChange {
+    pub kind: FileChangeKind,
+    pub path: std::path::PathBuf,
+    pub from_path: Option<std::path::PathBuf>,
+}
+
 #[cfg(all(test, feature = "jj-parse"))]
 mod tests {
     use super::*;

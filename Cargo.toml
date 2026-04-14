@@ -1,9 +1,9 @@
 [package]
 name = "vcs-runner"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.91"
-description = "Subprocess runner for jj and git with retry, repo detection, and structured jj output parsing"
+description = "Subprocess runner for jj and git with retry, timeouts, repo detection, and structured output parsing"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/michaeldhopkins/vcs-runner"
 homepage = "https://github.com/michaeldhopkins/vcs-runner"
@@ -12,8 +12,9 @@ keywords = ["jujutsu", "jj", "git", "subprocess", "vcs"]
 categories = ["development-tools"]
 
 [features]
-default = ["jj-parse"]
+default = ["jj-parse", "git-parse"]
 jj-parse = ["dep:serde", "dep:serde_json"]
+git-parse = []
 
 [dependencies]
 anyhow = "1"

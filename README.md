@@ -1,6 +1,6 @@
 # vcs-runner
 
-Subprocess runner for [jj](https://jj-vcs.github.io/jj/) and git CLI tools, with automatic retry on transient errors, timeout support, repository detection, and structured jj output parsing.
+Subprocess runner for [jj](https://jj-vcs.github.io/jj/) and git CLI tools, with automatic retry on transient errors, timeouts, repository detection, and structured output parsing for both VCS backends.
 
 ## Why not `std::process::Command`?
 
@@ -9,20 +9,26 @@ Subprocess runner for [jj](https://jj-vcs.github.io/jj/) and git CLI tools, with
 - **Timeout support** that kills hung commands (e.g., `git fetch` against an unreachable remote) and captures any partial output
 - **Binary-safe output** (`Vec<u8>`) with convenient `.stdout_lossy()` for text
 - **Repo detection** that walks parent directories and distinguishes git, jj, and colocated repos
-- **Structured jj parsing** (optional) turns `jj log` and `jj bookmark list` output into typed Rust structs
+- **Structured output parsing** (optional) for both backends — jj log, jj bookmarks, jj diff summary, git diff name-status
+- **Merge-base helpers** for both backends with consistent `Option<String>` semantics
 
 ## Usage
 
 ```toml
 [dependencies]
-vcs-runner = "0.8"
+vcs-runner = "0.9"
 ```
 
-Git-only consumers can skip the jj parsing types and their serde dependencies:
+### Cargo features
+
+- `jj-parse` (default): enables jj output parsers (log, bookmarks, diff summary) — pulls in `serde` and `serde_json`
+- `git-parse` (default): enables git output parsers (diff name-status) — no extra deps
+
+Git-only consumers can skip jj parsing:
 
 ```toml
 [dependencies]
-vcs-runner = { version = "0.8", default-features = false }
+vcs-runner = { version = "0.9", default-features = false, features = ["git-parse"] }
 ```
 
 ## Running commands
@@ -144,14 +150,31 @@ if backend.has_git() {
 
 Detection walks parent directories automatically (e.g., `/repo/src/lib/` finds `/repo/.jj`).
 
+## Merge base
+
+Find the common ancestor of two revisions. Returns `Ok(None)` when there is no common ancestor (unrelated histories); `Err(_)` for actual failures like invalid refs.
+
+```rust
+use vcs_runner::{jj_merge_base, git_merge_base};
+
+if let Some(base) = jj_merge_base(&repo, "trunk()", "@")? {
+    println!("fork point: {base}");
+}
+
+if let Some(base) = git_merge_base(&repo, "origin/main", "HEAD")? {
+    println!("fork point: {base}");
+}
+```
+
 ## Parsing jj output
 
 Requires the `jj-parse` feature (on by default). Pre-built templates produce line-delimited JSON; parse functions handle malformed output gracefully.
 
 ```rust
 use vcs_runner::{run_jj, BOOKMARK_TEMPLATE, LOG_TEMPLATE};
-use vcs_runner::{parse_bookmark_output, parse_log_output};
+use vcs_runner::{parse_bookmark_output, parse_log_output, parse_diff_summary};
 
+// Log entries with structured fields
 let output = run_jj(&repo, &[
     "log", "--revisions", "trunk()..@", "--no-graph", "--template", LOG_TEMPLATE,
 ])?;
@@ -164,11 +187,37 @@ for entry in &result.entries {
     }
 }
 
-// Skipped entries (malformed JSON from stale bookmarks, etc.)
-for name in &result.skipped {
-    eprintln!("skipped: {name}");
+// Bookmarks with sync status
+let output = run_jj(&repo, &["bookmark", "list", "--template", BOOKMARK_TEMPLATE])?;
+let result = parse_bookmark_output(&output.stdout_lossy());
+for bookmark in &result.bookmarks {
+    println!("{}: {:?}", bookmark.name, bookmark.remote);
+}
+
+// Diff summary — file changes between revisions
+let output = run_jj(&repo, &["diff", "--from", "trunk()", "--to", "@", "--summary"])?;
+for change in parse_diff_summary(&output.stdout_lossy()) {
+    println!("{:?} {}", change.kind, change.path.display());
+    if let Some(from) = &change.from_path {
+        println!("  (renamed from {})", from.display());
+    }
 }
 ```
+
+## Parsing git output
+
+Requires the `git-parse` feature (on by default). No extra dependencies.
+
+```rust
+use vcs_runner::{run_git, parse_git_diff_name_status};
+
+let output = run_git(&repo, &["diff", "--name-status", "origin/main", "HEAD"])?;
+for change in parse_git_diff_name_status(&output.stdout_lossy()) {
+    println!("{:?} {}", change.kind, change.path.display());
+}
+```
+
+Both `parse_diff_summary` (jj) and `parse_git_diff_name_status` (git) return the same `Vec<FileChange>`, so tools that support both backends can share downstream logic.
 
 ## Binary availability
 
