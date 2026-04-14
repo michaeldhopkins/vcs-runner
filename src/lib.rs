@@ -1,10 +1,12 @@
 mod detect;
+mod error;
 #[cfg(feature = "jj-parse")]
 mod parse;
 mod runner;
 mod types;
 
 pub use detect::{VcsBackend, detect_vcs};
+pub use error::RunError;
 #[cfg(feature = "jj-parse")]
 pub use parse::{
     BOOKMARK_TEMPLATE, LOG_TEMPLATE, BookmarkParseResult, LogParseResult, parse_bookmark_output,
