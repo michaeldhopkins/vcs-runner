@@ -57,9 +57,36 @@ pub fn run_cmd(program: &str, args: &[&str]) -> Result<RunOutput> {
 ///
 /// The `dir` parameter is first to match `run_jj(dir, args)` / `run_git(dir, args)`.
 pub fn run_cmd_in(dir: &Path, program: &str, args: &[&str]) -> Result<RunOutput> {
-    let output = Command::new(program)
-        .args(args)
-        .current_dir(dir)
+    run_cmd_in_with_env(dir, program, args, &[])
+}
+
+/// Run a command in a specific directory with extra environment variables.
+///
+/// Each `(key, value)` pair is added to the child process environment.
+/// The parent's environment is inherited; these vars are added on top.
+///
+/// ```no_run
+/// # use std::path::Path;
+/// # use vcs_runner::run_cmd_in_with_env;
+/// let repo = Path::new("/repo");
+/// let output = run_cmd_in_with_env(
+///     repo, "git", &["add", "-N", "--", "file.rs"],
+///     &[("GIT_INDEX_FILE", "/tmp/index.tmp")],
+/// )?;
+/// # Ok::<(), anyhow::Error>(())
+/// ```
+pub fn run_cmd_in_with_env(
+    dir: &Path,
+    program: &str,
+    args: &[&str],
+    env: &[(&str, &str)],
+) -> Result<RunOutput> {
+    let mut cmd = Command::new(program);
+    cmd.args(args).current_dir(dir);
+    for &(key, val) in env {
+        cmd.env(key, val);
+    }
+    let output = cmd
         .output()
         .with_context(|| format!("failed to run {program} in {}", dir.display()))?;
 
@@ -279,6 +306,70 @@ mod tests {
     #[test]
     fn cmd_in_fails_on_nonexistent_dir() {
         let result = run_cmd_in(std::path::Path::new("/nonexistent_dir_xyz_42"), "echo", &["hi"]);
+        assert!(result.is_err());
+    }
+
+    // --- run_cmd_in_with_env ---
+
+    #[test]
+    fn cmd_in_with_env_sets_variable() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let output = run_cmd_in_with_env(
+            tmp.path(),
+            "sh",
+            &["-c", "echo $TEST_VAR_XYZ"],
+            &[("TEST_VAR_XYZ", "hello_from_env")],
+        )
+        .expect("should succeed");
+        assert_eq!(output.stdout_lossy().trim(), "hello_from_env");
+    }
+
+    #[test]
+    fn cmd_in_with_env_multiple_vars() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let output = run_cmd_in_with_env(
+            tmp.path(),
+            "sh",
+            &["-c", "echo ${A}_${B}"],
+            &[("A", "foo"), ("B", "bar")],
+        )
+        .expect("should succeed");
+        assert_eq!(output.stdout_lossy().trim(), "foo_bar");
+    }
+
+    #[test]
+    fn cmd_in_with_env_empty_env_same_as_cmd_in() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let output = run_cmd_in_with_env(tmp.path(), "pwd", &[], &[])
+            .expect("should succeed");
+        let pwd = output.stdout_lossy().trim().to_string();
+        let expected = tmp.path().canonicalize().expect("canonicalize");
+        let actual = std::path::Path::new(&pwd).canonicalize().expect("canonicalize pwd");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn cmd_in_with_env_overrides_existing_var() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let output = run_cmd_in_with_env(
+            tmp.path(),
+            "sh",
+            &["-c", "echo $HOME"],
+            &[("HOME", "/fake/home")],
+        )
+        .expect("should succeed");
+        assert_eq!(output.stdout_lossy().trim(), "/fake/home");
+    }
+
+    #[test]
+    fn cmd_in_with_env_fails_on_nonzero() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let result = run_cmd_in_with_env(
+            tmp.path(),
+            "sh",
+            &["-c", "exit 1"],
+            &[("IRRELEVANT", "value")],
+        );
         assert!(result.is_err());
     }
 
