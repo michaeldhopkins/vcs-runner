@@ -14,8 +14,9 @@ pub use parse::{
 };
 pub use runner::{
     RunOutput, binary_available, binary_version, is_transient_error, run_cmd, run_cmd_in,
-    run_cmd_in_with_env, run_cmd_inherited, run_git, run_git_with_retry, run_jj,
-    run_jj_with_retry, run_with_retry,
+    run_cmd_in_with_env, run_cmd_in_with_timeout, run_cmd_inherited, run_git,
+    run_git_with_retry, run_git_with_timeout, run_jj, run_jj_with_retry, run_jj_with_timeout,
+    run_with_retry,
 };
 #[cfg(feature = "jj-parse")]
 pub use types::{

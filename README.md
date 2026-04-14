@@ -1,11 +1,12 @@
 # vcs-runner
 
-Subprocess runner for [jj](https://jj-vcs.github.io/jj/) and git CLI tools, with automatic retry on transient errors, repository detection, and structured jj output parsing.
+Subprocess runner for [jj](https://jj-vcs.github.io/jj/) and git CLI tools, with automatic retry on transient errors, timeout support, repository detection, and structured jj output parsing.
 
 ## Why not `std::process::Command`?
 
-- **Typed errors** — distinguishes "couldn't spawn the binary" from "command ran and exited non-zero," so callers can handle the second as a legitimate in-band signal
+- **Typed errors** — distinguishes "couldn't spawn the binary" from "command ran and exited non-zero" from "timed out," so callers can handle each as appropriate
 - **Retry with backoff** on lock contention and stale working copy errors
+- **Timeout support** that kills hung commands (e.g., `git fetch` against an unreachable remote) and captures any partial output
 - **Binary-safe output** (`Vec<u8>`) with convenient `.stdout_lossy()` for text
 - **Repo detection** that walks parent directories and distinguishes git, jj, and colocated repos
 - **Structured jj parsing** (optional) turns `jj log` and `jj bookmark list` output into typed Rust structs
@@ -14,14 +15,14 @@ Subprocess runner for [jj](https://jj-vcs.github.io/jj/) and git CLI tools, with
 
 ```toml
 [dependencies]
-vcs-runner = "0.7"
+vcs-runner = "0.8"
 ```
 
 Git-only consumers can skip the jj parsing types and their serde dependencies:
 
 ```toml
 [dependencies]
-vcs-runner = { version = "0.7", default-features = false }
+vcs-runner = { version = "0.8", default-features = false }
 ```
 
 ## Running commands
@@ -51,7 +52,7 @@ let output = run_git(&repo_path, &["log", "--oneline", "-5"])?;
 
 ### Handling "command ran and said no"
 
-`run_jj` and `run_git` return `Result<RunOutput, RunError>`. The `RunError` enum distinguishes infrastructure failure (binary missing, fork failed) from non-zero exits (the command ran and reported failure via exit code):
+`run_jj` and `run_git` return `Result<RunOutput, RunError>`. The `RunError` enum distinguishes infrastructure failure (binary missing, fork failed) from non-zero exits (the command ran and reported failure via exit code) from timeouts:
 
 ```rust
 use vcs_runner::{run_git, RunError};
@@ -66,15 +67,41 @@ match run_git(&repo_path, &["show", "possibly-missing-ref"]) {
 `RunError` implements `std::error::Error`, so `?` into `anyhow::Result` works when you don't care about the distinction.
 
 Inspection methods on `RunError`:
-- `err.is_non_zero_exit()` / `err.is_spawn_failure()` — check the variant
-- `err.stderr()` — captured stderr on `NonZeroExit`, `None` on `Spawn`
-- `err.exit_status()` — exit status on `NonZeroExit`, `None` on `Spawn`
+- `err.is_non_zero_exit()` / `err.is_spawn_failure()` / `err.is_timeout()` — check the variant
+- `err.stderr()` — captured stderr on `NonZeroExit`/`Timeout`, `None` on `Spawn`
+- `err.exit_status()` — exit status on `NonZeroExit`, `None` on others
 - `err.program()` — the program name that failed
+
+`RunError` is marked `#[non_exhaustive]`, so new variants can be added in future versions without breaking your match arms (add a wildcard fallback).
+
+### Timeouts
+
+For commands that might hang (network ops, unreachable remotes, user-supplied revsets), use the timeout variants:
+
+```rust
+use std::time::Duration;
+use vcs_runner::{run_git_with_timeout, RunError};
+
+match run_git_with_timeout(&repo_path, &["fetch"], Duration::from_secs(30)) {
+    Ok(_) => println!("fetched"),
+    Err(RunError::Timeout { elapsed, stderr, .. }) => {
+        eprintln!("fetch hung after {elapsed:?}; last stderr: {stderr}");
+    }
+    Err(e) => return Err(e.into()),
+}
+```
+
+The timeout implementation drains stdout/stderr in background threads, so a chatty process can't block on pipe-buffer overflow. Any output collected before the kill is returned in the `Timeout` error variant.
+
+**Caveat on grandchildren:** the kill signal reaches only the direct child. A shell wrapper like `sh -c "git fetch"` forks `git` as a grandchild that survives the shell's kill. Use `exec` in the shell (`sh -c "exec git fetch"`) or invoke `git` directly to avoid this.
 
 ### Commands other than jj/git
 
 ```rust
-use vcs_runner::{run_cmd, run_cmd_in, run_cmd_in_with_env, run_cmd_inherited};
+use std::time::Duration;
+use vcs_runner::{
+    run_cmd, run_cmd_in, run_cmd_in_with_env, run_cmd_in_with_timeout, run_cmd_inherited,
+};
 
 // Captured output
 let output = run_cmd("mise", &["env"])?;
@@ -86,6 +113,11 @@ let output = run_cmd_in(&repo_path, "make", &["build"])?;
 let output = run_cmd_in_with_env(
     &repo_path, "git", &["add", "-N", "--", "file.rs"],
     &[("GIT_INDEX_FILE", "/tmp/index.tmp")],
+)?;
+
+// With a timeout
+let output = run_cmd_in_with_timeout(
+    &repo_path, "make", &["test"], Duration::from_secs(60),
 )?;
 
 // Inherited I/O (user sees output directly)
