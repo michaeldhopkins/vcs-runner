@@ -2,8 +2,9 @@ use std::borrow::Cow;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-use anyhow::{Context, Result, bail};
 use backon::{BlockingRetryable, ExponentialBuilder};
+
+use crate::error::RunError;
 
 /// Captured output from a successful command.
 ///
@@ -30,25 +31,41 @@ impl RunOutput {
 ///
 /// Fails if the command exits non-zero. For captured output, use
 /// [`run_cmd`] or the VCS-specific [`run_jj`] / [`run_git`].
-pub fn run_cmd_inherited(program: &str, args: &[&str]) -> Result<()> {
-    let status = Command::new(program)
-        .args(args)
-        .status()
-        .with_context(|| format!("failed to run {program}"))?;
-    if !status.success() {
-        bail!("{program} exited with status {status}");
+///
+/// Returns [`RunError`] on failure. Because stdout/stderr are inherited,
+/// the `NonZeroExit` variant carries empty `stdout` and `stderr`.
+pub fn run_cmd_inherited(program: &str, args: &[&str]) -> Result<(), RunError> {
+    let status = Command::new(program).args(args).status().map_err(|source| {
+        RunError::Spawn {
+            program: program.to_string(),
+            source,
+        }
+    })?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(RunError::NonZeroExit {
+            program: program.to_string(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            status,
+            stdout: Vec::new(),
+            stderr: String::new(),
+        })
     }
-    Ok(())
 }
 
 /// Run an arbitrary command, capturing stdout and stderr.
 ///
-/// Fails with a descriptive error on non-zero exit.
-pub fn run_cmd(program: &str, args: &[&str]) -> Result<RunOutput> {
-    let output = Command::new(program)
-        .args(args)
-        .output()
-        .with_context(|| format!("failed to run {program}"))?;
+/// Fails with [`RunError::NonZeroExit`] (carrying captured output) on non-zero exit,
+/// or [`RunError::Spawn`] if the process couldn't start.
+pub fn run_cmd(program: &str, args: &[&str]) -> Result<RunOutput, RunError> {
+    let output = Command::new(program).args(args).output().map_err(|source| {
+        RunError::Spawn {
+            program: program.to_string(),
+            source,
+        }
+    })?;
 
     check_output(program, args, output)
 }
@@ -56,7 +73,7 @@ pub fn run_cmd(program: &str, args: &[&str]) -> Result<RunOutput> {
 /// Run an arbitrary command in a specific directory, capturing output.
 ///
 /// The `dir` parameter is first to match `run_jj(dir, args)` / `run_git(dir, args)`.
-pub fn run_cmd_in(dir: &Path, program: &str, args: &[&str]) -> Result<RunOutput> {
+pub fn run_cmd_in(dir: &Path, program: &str, args: &[&str]) -> Result<RunOutput, RunError> {
     run_cmd_in_with_env(dir, program, args, &[])
 }
 
@@ -73,41 +90,41 @@ pub fn run_cmd_in(dir: &Path, program: &str, args: &[&str]) -> Result<RunOutput>
 ///     repo, "git", &["add", "-N", "--", "file.rs"],
 ///     &[("GIT_INDEX_FILE", "/tmp/index.tmp")],
 /// )?;
-/// # Ok::<(), anyhow::Error>(())
+/// # Ok::<(), vcs_runner::RunError>(())
 /// ```
 pub fn run_cmd_in_with_env(
     dir: &Path,
     program: &str,
     args: &[&str],
     env: &[(&str, &str)],
-) -> Result<RunOutput> {
+) -> Result<RunOutput, RunError> {
     let mut cmd = Command::new(program);
     cmd.args(args).current_dir(dir);
     for &(key, val) in env {
         cmd.env(key, val);
     }
-    let output = cmd
-        .output()
-        .with_context(|| format!("failed to run {program} in {}", dir.display()))?;
+    let output = cmd.output().map_err(|source| RunError::Spawn {
+        program: program.to_string(),
+        source,
+    })?;
 
     check_output(program, args, output)
 }
 
 /// Run a `jj` command in a repo directory, returning captured output.
-pub fn run_jj(repo_path: &Path, args: &[&str]) -> Result<RunOutput> {
+pub fn run_jj(repo_path: &Path, args: &[&str]) -> Result<RunOutput, RunError> {
     run_cmd_in(repo_path, "jj", args)
 }
 
 /// Run a `git` command in a repo directory, returning captured output.
-pub fn run_git(repo_path: &Path, args: &[&str]) -> Result<RunOutput> {
+pub fn run_git(repo_path: &Path, args: &[&str]) -> Result<RunOutput, RunError> {
     run_cmd_in(repo_path, "git", args)
 }
 
 /// Run a command in a directory with retry on transient errors.
 ///
 /// Uses exponential backoff (100ms, 200ms, 400ms) with up to 3 retries.
-/// The `is_transient` callback receives the full stringified error
-/// (including stderr content) and returns whether to retry.
+/// The `is_transient` callback receives a [`RunError`] and returns whether to retry.
 ///
 /// For convenience, [`run_jj_with_retry`] and [`run_git_with_retry`]
 /// pre-fill the program name.
@@ -115,8 +132,8 @@ pub fn run_with_retry(
     repo_path: &Path,
     program: &str,
     args: &[&str],
-    is_transient: impl Fn(&str) -> bool,
-) -> Result<RunOutput> {
+    is_transient: impl Fn(&RunError) -> bool,
+) -> Result<RunOutput, RunError> {
     let args_owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
 
     let op = || {
@@ -130,7 +147,7 @@ pub fn run_with_retry(
             .with_min_delay(std::time::Duration::from_millis(100))
             .with_max_times(3),
     )
-    .when(|e| is_transient(&e.to_string()))
+    .when(is_transient)
     .call()
 }
 
@@ -140,8 +157,8 @@ pub fn run_with_retry(
 pub fn run_jj_with_retry(
     repo_path: &Path,
     args: &[&str],
-    is_transient: impl Fn(&str) -> bool,
-) -> Result<RunOutput> {
+    is_transient: impl Fn(&RunError) -> bool,
+) -> Result<RunOutput, RunError> {
     run_with_retry(repo_path, "jj", args, is_transient)
 }
 
@@ -151,18 +168,25 @@ pub fn run_jj_with_retry(
 pub fn run_git_with_retry(
     repo_path: &Path,
     args: &[&str],
-    is_transient: impl Fn(&str) -> bool,
-) -> Result<RunOutput> {
+    is_transient: impl Fn(&RunError) -> bool,
+) -> Result<RunOutput, RunError> {
     run_with_retry(repo_path, "git", args, is_transient)
 }
 
-/// Check whether a jj/git error indicates a transient condition.
+/// Default transient error check for jj/git.
 ///
-/// Matches:
-/// - "stale" — "The working copy is stale" (jj, resolves after op completion)
-/// - ".lock" — Lock file contention (git/jj)
-pub fn is_transient_error(error_msg: &str) -> bool {
-    error_msg.contains("stale") || error_msg.contains(".lock")
+/// Retries on:
+/// - `NonZeroExit` with `"stale"` in stderr — "The working copy is stale" (jj)
+/// - `NonZeroExit` with `".lock"` in stderr — Lock file contention (git/jj)
+///
+/// Spawn failures are never treated as transient.
+pub fn is_transient_error(err: &RunError) -> bool {
+    match err {
+        RunError::NonZeroExit { stderr, .. } => {
+            stderr.contains("stale") || stderr.contains(".lock")
+        }
+        RunError::Spawn { .. } => false,
+    }
 }
 
 /// Check whether a binary is available on PATH.
@@ -177,25 +201,27 @@ pub fn binary_available(name: &str) -> bool {
 
 /// Get a binary's version string, if available.
 pub fn binary_version(name: &str) -> Option<String> {
-    let output = Command::new(name)
-        .arg("--version")
-        .output()
-        .ok()?;
+    let output = Command::new(name).arg("--version").output().ok()?;
     if !output.status.success() {
         return None;
     }
     Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn check_output(program: &str, args: &[&str], output: Output) -> Result<RunOutput> {
+fn check_output(program: &str, args: &[&str], output: Output) -> Result<RunOutput, RunError> {
     if output.status.success() {
         Ok(RunOutput {
             stdout: output.stdout,
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         })
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("{program} {} failed: {}", args.join(" "), stderr.trim())
+        Err(RunError::NonZeroExit {
+            program: program.to_string(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            status: output.status,
+            stdout: output.stdout,
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
     }
 }
 
@@ -205,41 +231,65 @@ mod tests {
 
     // --- is_transient_error ---
 
+    fn fake_non_zero(stderr: &str) -> RunError {
+        let status = Command::new("false").status().expect("false");
+        RunError::NonZeroExit {
+            program: "jj".into(),
+            args: vec!["status".into()],
+            status,
+            stdout: Vec::new(),
+            stderr: stderr.to_string(),
+        }
+    }
+
+    fn fake_spawn() -> RunError {
+        RunError::Spawn {
+            program: "jj".into(),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "not found"),
+        }
+    }
+
     #[test]
     fn transient_detects_stale() {
-        assert!(is_transient_error("The working copy is stale"));
+        assert!(is_transient_error(&fake_non_zero("The working copy is stale")));
     }
 
     #[test]
     fn transient_detects_stale_in_context() {
-        assert!(is_transient_error(
-            "jj diff failed: Error: The working copy is stale (not updated since op abc)"
-        ));
+        assert!(is_transient_error(&fake_non_zero(
+            "Error: The working copy is stale (not updated since op abc)"
+        )));
     }
 
     #[test]
     fn transient_detects_lock() {
-        assert!(is_transient_error("Unable to create .lock: File exists"));
+        assert!(is_transient_error(&fake_non_zero(
+            "Unable to create .lock: File exists"
+        )));
     }
 
     #[test]
     fn transient_detects_git_index_lock() {
-        assert!(is_transient_error("fatal: Unable to create '/repo/.git/index.lock'"));
+        assert!(is_transient_error(&fake_non_zero(
+            "fatal: Unable to create '/repo/.git/index.lock'"
+        )));
     }
 
     #[test]
     fn transient_rejects_config_error() {
-        assert!(!is_transient_error("Config error: no such revision"));
+        assert!(!is_transient_error(&fake_non_zero(
+            "Config error: no such revision"
+        )));
     }
 
     #[test]
     fn transient_rejects_empty() {
-        assert!(!is_transient_error(""));
+        assert!(!is_transient_error(&fake_non_zero("")));
     }
 
     #[test]
-    fn transient_rejects_not_found() {
-        assert!(!is_transient_error("jj not found"));
+    fn transient_never_retries_spawn_failure() {
+        assert!(!is_transient_error(&fake_spawn()));
     }
 
     // --- run_cmd_inherited ---
@@ -252,15 +302,16 @@ mod tests {
     #[test]
     fn cmd_inherited_fails_on_nonzero() {
         let result = run_cmd_inherited("false", &[]);
-        assert!(result.is_err());
-        let msg = result.expect_err("should fail").to_string();
-        assert!(msg.contains("false"), "error should name the program");
+        let err = result.expect_err("should fail");
+        assert!(err.is_non_zero_exit());
+        assert_eq!(err.program(), "false");
     }
 
     #[test]
     fn cmd_inherited_fails_on_missing_binary() {
         let result = run_cmd_inherited("nonexistent_binary_xyz_42", &[]);
-        assert!(result.is_err());
+        let err = result.expect_err("should fail");
+        assert!(err.is_spawn_failure());
     }
 
     // --- run_cmd ---
@@ -273,15 +324,32 @@ mod tests {
 
     #[test]
     fn cmd_captured_fails_on_nonzero() {
-        let result = run_cmd("false", &[]);
-        assert!(result.is_err());
+        let err = run_cmd("false", &[]).expect_err("should fail");
+        assert!(err.is_non_zero_exit());
+        assert!(err.exit_status().is_some());
     }
 
     #[test]
-    fn cmd_captured_captures_stderr() {
-        let result = run_cmd("sh", &["-c", "echo err >&2; exit 1"]);
-        let msg = result.expect_err("should fail").to_string();
-        assert!(msg.contains("err"), "error should include stderr content");
+    fn cmd_captured_captures_stderr_on_failure() {
+        let err = run_cmd("sh", &["-c", "echo err >&2; exit 1"]).expect_err("should fail");
+        assert_eq!(err.stderr(), Some("err\n"));
+    }
+
+    #[test]
+    fn cmd_captured_captures_stdout_on_failure() {
+        let err = run_cmd("sh", &["-c", "echo output; exit 1"]).expect_err("should fail");
+        match &err {
+            RunError::NonZeroExit { stdout, .. } => {
+                assert_eq!(String::from_utf8_lossy(stdout).trim(), "output");
+            }
+            _ => panic!("expected NonZeroExit"),
+        }
+    }
+
+    #[test]
+    fn cmd_fails_on_missing_binary() {
+        let err = run_cmd("nonexistent_binary_xyz_42", &[]).expect_err("should fail");
+        assert!(err.is_spawn_failure());
     }
 
     // --- run_cmd_in ---
@@ -299,14 +367,19 @@ mod tests {
     #[test]
     fn cmd_in_fails_on_nonzero() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let result = run_cmd_in(tmp.path(), "false", &[]);
-        assert!(result.is_err());
+        let err = run_cmd_in(tmp.path(), "false", &[]).expect_err("should fail");
+        assert!(err.is_non_zero_exit());
     }
 
     #[test]
     fn cmd_in_fails_on_nonexistent_dir() {
-        let result = run_cmd_in(std::path::Path::new("/nonexistent_dir_xyz_42"), "echo", &["hi"]);
-        assert!(result.is_err());
+        let err = run_cmd_in(
+            std::path::Path::new("/nonexistent_dir_xyz_42"),
+            "echo",
+            &["hi"],
+        )
+        .expect_err("should fail");
+        assert!(err.is_spawn_failure());
     }
 
     // --- run_cmd_in_with_env ---
@@ -340,8 +413,8 @@ mod tests {
     #[test]
     fn cmd_in_with_env_empty_env_same_as_cmd_in() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let output = run_cmd_in_with_env(tmp.path(), "pwd", &[], &[])
-            .expect("should succeed");
+        let output =
+            run_cmd_in_with_env(tmp.path(), "pwd", &[], &[]).expect("should succeed");
         let pwd = output.stdout_lossy().trim().to_string();
         let expected = tmp.path().canonicalize().expect("canonicalize");
         let actual = std::path::Path::new(&pwd).canonicalize().expect("canonicalize pwd");
@@ -364,13 +437,14 @@ mod tests {
     #[test]
     fn cmd_in_with_env_fails_on_nonzero() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let result = run_cmd_in_with_env(
+        let err = run_cmd_in_with_env(
             tmp.path(),
             "sh",
             &["-c", "exit 1"],
             &[("IRRELEVANT", "value")],
-        );
-        assert!(result.is_err());
+        )
+        .expect_err("should fail");
+        assert!(err.is_non_zero_exit());
     }
 
     // --- RunOutput ---
@@ -391,8 +465,8 @@ mod tests {
             stderr: String::new(),
         };
         let s = output.stdout_lossy();
-        assert!(s.contains("ab"), "valid bytes should be preserved");
-        assert!(s.contains('�'), "invalid bytes should become replacement char");
+        assert!(s.contains("ab"));
+        assert!(s.contains('�'));
     }
 
     #[test]
@@ -433,7 +507,7 @@ mod tests {
         assert!(binary_version("nonexistent_binary_xyz_42").is_none());
     }
 
-    // --- run_jj (only if jj available) ---
+    // --- run_jj / run_git (only if binary available) ---
 
     #[test]
     fn run_jj_version_succeeds() {
@@ -451,10 +525,9 @@ mod tests {
             return;
         }
         let tmp = tempfile::tempdir().expect("tempdir");
-        assert!(run_jj(tmp.path(), &["status"]).is_err());
+        let err = run_jj(tmp.path(), &["status"]).expect_err("should fail");
+        assert!(err.is_non_zero_exit());
     }
-
-    // --- run_git (only if git available) ---
 
     #[test]
     fn run_git_version_succeeds() {
@@ -472,15 +545,16 @@ mod tests {
             return;
         }
         let tmp = tempfile::tempdir().expect("tempdir");
-        assert!(run_git(tmp.path(), &["status"]).is_err());
+        let err = run_git(tmp.path(), &["status"]).expect_err("should fail");
+        assert!(err.is_non_zero_exit());
     }
 
     // --- check_output ---
 
     #[test]
     fn check_output_preserves_stderr_on_success() {
-        let output = run_cmd("sh", &["-c", "echo ok; echo warn >&2"])
-            .expect("should succeed");
+        let output =
+            run_cmd("sh", &["-c", "echo ok; echo warn >&2"]).expect("should succeed");
         assert_eq!(output.stdout_lossy().trim(), "ok");
         assert_eq!(output.stderr.trim(), "warn");
     }
@@ -488,10 +562,12 @@ mod tests {
     // --- retry ---
 
     #[test]
-    fn retry_accepts_closure() {
-        let custom_keyword = "custom_transient".to_string();
-        let checker = |err: &str| err.contains(custom_keyword.as_str());
-        assert!(!checker("some other error"));
-        assert!(checker("this is custom_transient error"));
+    fn retry_accepts_closure_over_run_error() {
+        let captured = "special".to_string();
+        let checker = |err: &RunError| err.stderr().is_some_and(|s| s.contains(captured.as_str()));
+
+        assert!(!checker(&fake_non_zero("other")));
+        assert!(checker(&fake_non_zero("this has special text")));
+        assert!(!checker(&fake_spawn()));
     }
 }
