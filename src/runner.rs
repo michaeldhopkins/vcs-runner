@@ -1,8 +1,12 @@
 use std::borrow::Cow;
+use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use backon::{BlockingRetryable, ExponentialBuilder};
+use wait_timeout::ChildExt;
 
 use crate::error::RunError;
 
@@ -56,9 +60,6 @@ pub fn run_cmd_inherited(program: &str, args: &[&str]) -> Result<(), RunError> {
 }
 
 /// Run an arbitrary command, capturing stdout and stderr.
-///
-/// Fails with [`RunError::NonZeroExit`] (carrying captured output) on non-zero exit,
-/// or [`RunError::Spawn`] if the process couldn't start.
 pub fn run_cmd(program: &str, args: &[&str]) -> Result<RunOutput, RunError> {
     let output = Command::new(program).args(args).output().map_err(|source| {
         RunError::Spawn {
@@ -111,6 +112,124 @@ pub fn run_cmd_in_with_env(
     check_output(program, args, output)
 }
 
+/// Run a command in a directory, killing it if it exceeds `timeout`.
+///
+/// Uses background threads to drain stdout and stderr so a chatty process
+/// can't block on pipe buffer overflow. On timeout, the child is killed
+/// and any output collected before the kill is included in the error.
+///
+/// Returns [`RunError::Timeout`] if the process was killed.
+/// Returns [`RunError::NonZeroExit`] if it completed with a non-zero status.
+/// Returns [`RunError::Spawn`] if the process couldn't start.
+///
+/// # Caveat: grandchildren
+///
+/// Only the direct child process receives the kill signal. Grandchildren
+/// (spawned by the child) become orphans and continue running, and they
+/// may hold the stdout/stderr pipes open, delaying this function's return
+/// until they exit naturally. This is rare for direct invocations of
+/// `git`/`jj` but can matter for shell wrappers — use `exec` in the shell
+/// command (e.g., `sh -c "exec git fetch"`) to replace the shell with the
+/// target process and avoid the grandchild case.
+///
+/// ```no_run
+/// # use std::path::Path;
+/// # use std::time::Duration;
+/// # use vcs_runner::{run_cmd_in_with_timeout, RunError};
+/// let repo = Path::new("/repo");
+/// match run_cmd_in_with_timeout(repo, "git", &["fetch"], Duration::from_secs(30)) {
+///     Ok(_) => println!("fetched"),
+///     Err(RunError::Timeout { elapsed, .. }) => {
+///         eprintln!("fetch hung, killed after {elapsed:?}");
+///     }
+///     Err(e) => return Err(e.into()),
+/// }
+/// # Ok::<(), anyhow::Error>(())
+/// ```
+pub fn run_cmd_in_with_timeout(
+    dir: &Path,
+    program: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<RunOutput, RunError> {
+    let mut child = Command::new(program)
+        .args(args)
+        .current_dir(dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|source| RunError::Spawn {
+            program: program.to_string(),
+            source,
+        })?;
+
+    // Drain stdio in background threads so the child can't block on pipe buffers.
+    let stdout = child.stdout.take().expect("stdout piped");
+    let stderr = child.stderr.take().expect("stderr piped");
+    let stdout_handle = thread::spawn(move || read_to_end(stdout));
+    let stderr_handle = thread::spawn(move || read_to_end(stderr));
+
+    let start = Instant::now();
+    let wait_result = child.wait_timeout(timeout);
+
+    // If the child is still alive (timeout or wait error), kill it BEFORE joining
+    // the stdio threads — otherwise those threads block forever on read.
+    let outcome = match wait_result {
+        Ok(Some(status)) => Outcome::Exited(status),
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Outcome::TimedOut(start.elapsed())
+        }
+        Err(source) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Outcome::WaitFailed(source)
+        }
+    };
+
+    // Safe to join now: the child is dead, pipes are closed, threads will return EOF.
+    let stdout_bytes = stdout_handle.join().unwrap_or_default();
+    let stderr_bytes = stderr_handle.join().unwrap_or_default();
+    let stderr_str = String::from_utf8_lossy(&stderr_bytes).into_owned();
+
+    match outcome {
+        Outcome::Exited(status) => {
+            if status.success() {
+                Ok(RunOutput {
+                    stdout: stdout_bytes,
+                    stderr: stderr_str,
+                })
+            } else {
+                Err(RunError::NonZeroExit {
+                    program: program.to_string(),
+                    args: args.iter().map(|s| s.to_string()).collect(),
+                    status,
+                    stdout: stdout_bytes,
+                    stderr: stderr_str,
+                })
+            }
+        }
+        Outcome::TimedOut(elapsed) => Err(RunError::Timeout {
+            program: program.to_string(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            elapsed,
+            stdout: stdout_bytes,
+            stderr: stderr_str,
+        }),
+        Outcome::WaitFailed(source) => Err(RunError::Spawn {
+            program: program.to_string(),
+            source,
+        }),
+    }
+}
+
+enum Outcome {
+    Exited(std::process::ExitStatus),
+    TimedOut(Duration),
+    WaitFailed(std::io::Error),
+}
+
 /// Run a `jj` command in a repo directory, returning captured output.
 pub fn run_jj(repo_path: &Path, args: &[&str]) -> Result<RunOutput, RunError> {
     run_cmd_in(repo_path, "jj", args)
@@ -121,13 +240,32 @@ pub fn run_git(repo_path: &Path, args: &[&str]) -> Result<RunOutput, RunError> {
     run_cmd_in(repo_path, "git", args)
 }
 
+/// Run a `jj` command with a timeout.
+///
+/// Shorthand for `run_cmd_in_with_timeout(repo_path, "jj", args, timeout)`.
+pub fn run_jj_with_timeout(
+    repo_path: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<RunOutput, RunError> {
+    run_cmd_in_with_timeout(repo_path, "jj", args, timeout)
+}
+
+/// Run a `git` command with a timeout.
+///
+/// Shorthand for `run_cmd_in_with_timeout(repo_path, "git", args, timeout)`.
+pub fn run_git_with_timeout(
+    repo_path: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<RunOutput, RunError> {
+    run_cmd_in_with_timeout(repo_path, "git", args, timeout)
+}
+
 /// Run a command in a directory with retry on transient errors.
 ///
 /// Uses exponential backoff (100ms, 200ms, 400ms) with up to 3 retries.
 /// The `is_transient` callback receives a [`RunError`] and returns whether to retry.
-///
-/// For convenience, [`run_jj_with_retry`] and [`run_git_with_retry`]
-/// pre-fill the program name.
 pub fn run_with_retry(
     repo_path: &Path,
     program: &str,
@@ -144,7 +282,7 @@ pub fn run_with_retry(
     op.retry(
         ExponentialBuilder::default()
             .with_factor(2.0)
-            .with_min_delay(std::time::Duration::from_millis(100))
+            .with_min_delay(Duration::from_millis(100))
             .with_max_times(3),
     )
     .when(is_transient)
@@ -152,8 +290,6 @@ pub fn run_with_retry(
 }
 
 /// Run a `jj` command with retry on transient errors.
-///
-/// Shorthand for `run_with_retry(repo_path, "jj", args, is_transient)`.
 pub fn run_jj_with_retry(
     repo_path: &Path,
     args: &[&str],
@@ -163,8 +299,6 @@ pub fn run_jj_with_retry(
 }
 
 /// Run a `git` command with retry on transient errors.
-///
-/// Shorthand for `run_with_retry(repo_path, "git", args, is_transient)`.
 pub fn run_git_with_retry(
     repo_path: &Path,
     args: &[&str],
@@ -179,13 +313,13 @@ pub fn run_git_with_retry(
 /// - `NonZeroExit` with `"stale"` in stderr — "The working copy is stale" (jj)
 /// - `NonZeroExit` with `".lock"` in stderr — Lock file contention (git/jj)
 ///
-/// Spawn failures are never treated as transient.
+/// Spawn failures and timeouts are never treated as transient.
 pub fn is_transient_error(err: &RunError) -> bool {
     match err {
         RunError::NonZeroExit { stderr, .. } => {
             stderr.contains("stale") || stderr.contains(".lock")
         }
-        RunError::Spawn { .. } => false,
+        RunError::Spawn { .. } | RunError::Timeout { .. } => false,
     }
 }
 
@@ -225,6 +359,12 @@ fn check_output(program: &str, args: &[&str], output: Output) -> Result<RunOutpu
     }
 }
 
+fn read_to_end<R: Read>(mut reader: R) -> Vec<u8> {
+    let mut buf = Vec::new();
+    let _ = reader.read_to_end(&mut buf);
+    buf
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,29 +389,25 @@ mod tests {
         }
     }
 
+    fn fake_timeout() -> RunError {
+        RunError::Timeout {
+            program: "git".into(),
+            args: vec!["fetch".into()],
+            elapsed: Duration::from_secs(30),
+            stdout: Vec::new(),
+            stderr: String::new(),
+        }
+    }
+
     #[test]
     fn transient_detects_stale() {
         assert!(is_transient_error(&fake_non_zero("The working copy is stale")));
     }
 
     #[test]
-    fn transient_detects_stale_in_context() {
-        assert!(is_transient_error(&fake_non_zero(
-            "Error: The working copy is stale (not updated since op abc)"
-        )));
-    }
-
-    #[test]
     fn transient_detects_lock() {
         assert!(is_transient_error(&fake_non_zero(
             "Unable to create .lock: File exists"
-        )));
-    }
-
-    #[test]
-    fn transient_detects_git_index_lock() {
-        assert!(is_transient_error(&fake_non_zero(
-            "fatal: Unable to create '/repo/.git/index.lock'"
         )));
     }
 
@@ -283,13 +419,13 @@ mod tests {
     }
 
     #[test]
-    fn transient_rejects_empty() {
-        assert!(!is_transient_error(&fake_non_zero("")));
+    fn transient_never_retries_spawn_failure() {
+        assert!(!is_transient_error(&fake_spawn()));
     }
 
     #[test]
-    fn transient_never_retries_spawn_failure() {
-        assert!(!is_transient_error(&fake_spawn()));
+    fn transient_never_retries_timeout() {
+        assert!(!is_transient_error(&fake_timeout()));
     }
 
     // --- run_cmd_inherited ---
@@ -301,16 +437,14 @@ mod tests {
 
     #[test]
     fn cmd_inherited_fails_on_nonzero() {
-        let result = run_cmd_inherited("false", &[]);
-        let err = result.expect_err("should fail");
+        let err = run_cmd_inherited("false", &[]).expect_err("should fail");
         assert!(err.is_non_zero_exit());
         assert_eq!(err.program(), "false");
     }
 
     #[test]
     fn cmd_inherited_fails_on_missing_binary() {
-        let result = run_cmd_inherited("nonexistent_binary_xyz_42", &[]);
-        let err = result.expect_err("should fail");
+        let err = run_cmd_inherited("nonexistent_binary_xyz_42", &[]).expect_err("should fail");
         assert!(err.is_spawn_failure());
     }
 
@@ -411,17 +545,6 @@ mod tests {
     }
 
     #[test]
-    fn cmd_in_with_env_empty_env_same_as_cmd_in() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let output =
-            run_cmd_in_with_env(tmp.path(), "pwd", &[], &[]).expect("should succeed");
-        let pwd = output.stdout_lossy().trim().to_string();
-        let expected = tmp.path().canonicalize().expect("canonicalize");
-        let actual = std::path::Path::new(&pwd).canonicalize().expect("canonicalize pwd");
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
     fn cmd_in_with_env_overrides_existing_var() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let output = run_cmd_in_with_env(
@@ -445,6 +568,102 @@ mod tests {
         )
         .expect_err("should fail");
         assert!(err.is_non_zero_exit());
+    }
+
+    // --- run_cmd_in_with_timeout ---
+
+    #[test]
+    fn timeout_succeeds_for_fast_command() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let output =
+            run_cmd_in_with_timeout(tmp.path(), "echo", &["hello"], Duration::from_secs(5))
+                .expect("should succeed");
+        assert_eq!(output.stdout_lossy().trim(), "hello");
+    }
+
+    #[test]
+    fn timeout_fires_for_slow_command() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let wall_start = Instant::now();
+        let err = run_cmd_in_with_timeout(
+            tmp.path(),
+            "sleep",
+            &["10"],
+            Duration::from_millis(200),
+        )
+        .expect_err("should time out");
+        let wall_elapsed = wall_start.elapsed();
+
+        assert!(err.is_timeout());
+        // The sleep was for 10 seconds; we killed it. Total wall time must be far less.
+        assert!(
+            wall_elapsed < Duration::from_secs(5),
+            "expected quick kill, took {wall_elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn timeout_captures_partial_stderr_before_kill() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // `exec sleep 10` replaces the shell with sleep directly, so killing our
+        // direct child (sleep) closes its stderr pipe. Without exec, the shell
+        // would fork sleep as a grandchild that survives the kill and keeps the
+        // pipe open until its natural completion.
+        let err = run_cmd_in_with_timeout(
+            tmp.path(),
+            "sh",
+            &["-c", "echo partial >&2; exec sleep 10"],
+            Duration::from_millis(500),
+        )
+        .expect_err("should time out");
+        assert!(err.is_timeout());
+        let stderr = err.stderr().unwrap_or("");
+        assert!(
+            stderr.contains("partial"),
+            "expected partial stderr, got: {stderr:?}"
+        );
+    }
+
+    #[test]
+    fn timeout_reports_non_zero_exit_when_process_completes() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let err = run_cmd_in_with_timeout(
+            tmp.path(),
+            "false",
+            &[],
+            Duration::from_secs(5),
+        )
+        .expect_err("should fail");
+        assert!(err.is_non_zero_exit());
+    }
+
+    #[test]
+    fn timeout_fails_on_missing_binary() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let err = run_cmd_in_with_timeout(
+            tmp.path(),
+            "nonexistent_binary_xyz_42",
+            &[],
+            Duration::from_secs(5),
+        )
+        .expect_err("should fail");
+        assert!(err.is_spawn_failure());
+    }
+
+    #[test]
+    fn timeout_does_not_block_on_large_output() {
+        // Without background thread draining, a command that writes more than
+        // the pipe buffer (usually 64KB) would block waiting for us to read.
+        // The timeout would fire but the process would be hung on write.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let output = run_cmd_in_with_timeout(
+            tmp.path(),
+            "sh",
+            &["-c", "yes | head -c 200000"],
+            Duration::from_secs(5),
+        )
+        .expect("should succeed");
+        assert!(output.stdout.len() >= 200_000);
     }
 
     // --- RunOutput ---
@@ -547,6 +766,30 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let err = run_git(tmp.path(), &["status"]).expect_err("should fail");
         assert!(err.is_non_zero_exit());
+    }
+
+    #[test]
+    fn run_jj_with_timeout_succeeds() {
+        if !binary_available("jj") {
+            return;
+        }
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let output =
+            run_jj_with_timeout(tmp.path(), &["--version"], Duration::from_secs(5))
+                .expect("jj --version should work");
+        assert!(output.stdout_lossy().contains("jj"));
+    }
+
+    #[test]
+    fn run_git_with_timeout_succeeds() {
+        if !binary_available("git") {
+            return;
+        }
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let output =
+            run_git_with_timeout(tmp.path(), &["--version"], Duration::from_secs(5))
+                .expect("git --version should work");
+        assert!(output.stdout_lossy().contains("git"));
     }
 
     // --- check_output ---

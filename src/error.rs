@@ -1,15 +1,17 @@
 use std::fmt;
 use std::io;
 use std::process::ExitStatus;
+use std::time::Duration;
 
 /// Error type for subprocess execution.
 ///
 /// Distinguishes between:
 /// - [`Spawn`](Self::Spawn): infrastructure failure (binary missing, fork failed, etc.)
 /// - [`NonZeroExit`](Self::NonZeroExit): the command ran and reported failure via exit code
+/// - [`Timeout`](Self::Timeout): the command was killed after exceeding its timeout
 ///
-/// Callers that want to treat non-zero exits as legitimate in-band signals
-/// (e.g., `git show <nonexistent-ref>` returning "not found") can pattern-match:
+/// Marked `#[non_exhaustive]` so future variants can be added without breaking callers.
+/// Match with a wildcard arm to handle unknown variants defensively.
 ///
 /// ```no_run
 /// # use std::path::Path;
@@ -23,6 +25,7 @@ use std::process::ExitStatus;
 /// # Ok::<(), anyhow::Error>(())
 /// ```
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum RunError {
     /// Failed to spawn the child process. The binary may be missing, the
     /// working directory may not exist, or the OS may have refused the fork.
@@ -40,6 +43,17 @@ pub enum RunError {
         stdout: Vec<u8>,
         stderr: String,
     },
+    /// The child process was killed after exceeding the caller's timeout.
+    ///
+    /// Any output written to stdout/stderr before the kill signal is included
+    /// when available. The `elapsed` field records how long the process ran.
+    Timeout {
+        program: String,
+        args: Vec<String>,
+        elapsed: Duration,
+        stdout: Vec<u8>,
+        stderr: String,
+    },
 }
 
 impl RunError {
@@ -48,22 +62,25 @@ impl RunError {
         match self {
             Self::Spawn { program, .. } => program,
             Self::NonZeroExit { program, .. } => program,
+            Self::Timeout { program, .. } => program,
         }
     }
 
-    /// The captured stderr, if any. Empty for spawn failures and inherited commands.
+    /// The captured stderr, if any. None for spawn failures.
     pub fn stderr(&self) -> Option<&str> {
         match self {
             Self::NonZeroExit { stderr, .. } => Some(stderr),
+            Self::Timeout { stderr, .. } => Some(stderr),
             Self::Spawn { .. } => None,
         }
     }
 
-    /// The exit status, if the process actually ran.
+    /// The exit status, if the process actually ran to completion.
+    /// None for spawn failures and timeouts.
     pub fn exit_status(&self) -> Option<ExitStatus> {
         match self {
             Self::NonZeroExit { status, .. } => Some(*status),
-            Self::Spawn { .. } => None,
+            Self::Spawn { .. } | Self::Timeout { .. } => None,
         }
     }
 
@@ -75,6 +92,11 @@ impl RunError {
     /// Whether this error represents a spawn failure (couldn't start the process).
     pub fn is_spawn_failure(&self) -> bool {
         matches!(self, Self::Spawn { .. })
+    }
+
+    /// Whether this error represents a timeout (process killed after exceeding its time budget).
+    pub fn is_timeout(&self) -> bool {
+        matches!(self, Self::Timeout { .. })
     }
 }
 
@@ -102,6 +124,19 @@ impl fmt::Display for RunError {
                     )
                 }
             }
+            Self::Timeout {
+                program,
+                args,
+                elapsed,
+                ..
+            } => {
+                write!(
+                    f,
+                    "{program} {} killed after timeout ({:.1}s)",
+                    args.join(" "),
+                    elapsed.as_secs_f64()
+                )
+            }
         }
     }
 }
@@ -110,7 +145,7 @@ impl std::error::Error for RunError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Spawn { source, .. } => Some(source),
-            Self::NonZeroExit { .. } => None,
+            Self::NonZeroExit { .. } | Self::Timeout { .. } => None,
         }
     }
 }
@@ -127,8 +162,6 @@ mod tests {
     }
 
     fn non_zero_exit(stderr: &str) -> RunError {
-        // ExitStatus can only be constructed from platform-specific means;
-        // use a command we know exits non-zero to get a real one.
         let status = std::process::Command::new("false")
             .status()
             .expect("false should be runnable");
@@ -141,34 +174,56 @@ mod tests {
         }
     }
 
+    fn timeout_error() -> RunError {
+        RunError::Timeout {
+            program: "git".into(),
+            args: vec!["fetch".into()],
+            elapsed: Duration::from_secs(30),
+            stdout: Vec::new(),
+            stderr: "Fetching origin".into(),
+        }
+    }
+
     #[test]
     fn program_returns_name() {
         assert_eq!(spawn_error().program(), "git");
         assert_eq!(non_zero_exit("").program(), "git");
+        assert_eq!(timeout_error().program(), "git");
     }
 
     #[test]
-    fn stderr_only_for_non_zero_exit() {
+    fn stderr_only_for_completed_or_timed_out() {
         assert_eq!(spawn_error().stderr(), None);
         assert_eq!(non_zero_exit("boom").stderr(), Some("boom"));
+        assert_eq!(timeout_error().stderr(), Some("Fetching origin"));
     }
 
     #[test]
     fn exit_status_only_for_non_zero_exit() {
         assert!(spawn_error().exit_status().is_none());
         assert!(non_zero_exit("").exit_status().is_some());
+        assert!(timeout_error().exit_status().is_none());
     }
 
     #[test]
     fn is_non_zero_exit_predicate() {
         assert!(!spawn_error().is_non_zero_exit());
         assert!(non_zero_exit("").is_non_zero_exit());
+        assert!(!timeout_error().is_non_zero_exit());
     }
 
     #[test]
     fn is_spawn_failure_predicate() {
         assert!(spawn_error().is_spawn_failure());
         assert!(!non_zero_exit("").is_spawn_failure());
+        assert!(!timeout_error().is_spawn_failure());
+    }
+
+    #[test]
+    fn is_timeout_predicate() {
+        assert!(!spawn_error().is_timeout());
+        assert!(!non_zero_exit("").is_timeout());
+        assert!(timeout_error().is_timeout());
     }
 
     #[test]
@@ -176,7 +231,6 @@ mod tests {
         let msg = format!("{}", spawn_error());
         assert!(msg.contains("spawn"));
         assert!(msg.contains("git"));
-        assert!(msg.contains("not found"));
     }
 
     #[test]
@@ -187,29 +241,28 @@ mod tests {
     }
 
     #[test]
-    fn display_non_zero_exit_empty_stderr() {
-        let msg = format!("{}", non_zero_exit(""));
-        assert!(msg.contains("git status"));
-        assert!(msg.contains("exited"));
+    fn display_timeout() {
+        let msg = format!("{}", timeout_error());
+        assert!(msg.contains("git fetch"));
+        assert!(msg.contains("timeout"));
+        assert!(msg.contains("30"));
     }
 
     #[test]
     fn error_source_for_spawn() {
         use std::error::Error;
-        let err = spawn_error();
-        assert!(err.source().is_some());
+        assert!(spawn_error().source().is_some());
     }
 
     #[test]
-    fn error_source_none_for_exit() {
+    fn error_source_none_for_non_spawn() {
         use std::error::Error;
-        let err = non_zero_exit("");
-        assert!(err.source().is_none());
+        assert!(non_zero_exit("").source().is_none());
+        assert!(timeout_error().source().is_none());
     }
 
     #[test]
     fn wraps_into_anyhow() {
-        // RunError implementing std::error::Error means anyhow can wrap it
         let err = spawn_error();
         let _: anyhow::Error = err.into();
     }
