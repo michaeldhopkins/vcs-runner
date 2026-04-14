@@ -68,7 +68,19 @@ jobs:
         run: cargo deny check licenses
 
       - name: Publish to crates.io
-        run: cargo publish || echo "::warning::Publish failed (version may already exist)"
+        run: |
+          set -o pipefail
+          # Capture output so we can distinguish "already exists" from real failures.
+          if OUTPUT=$(cargo publish 2>&1); then
+            echo "$OUTPUT"
+          else
+            echo "$OUTPUT"
+            if echo "$OUTPUT" | grep -q "already exists on crates.io"; then
+              echo "::warning::Version already published to crates.io, skipping"
+            else
+              exit 1
+            fi
+          fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
