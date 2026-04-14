@@ -307,6 +307,63 @@ pub fn run_git_with_retry(
     run_with_retry(repo_path, "git", args, is_transient)
 }
 
+/// Find the merge base of two revisions in a jj repository.
+///
+/// Uses the revset `latest(::(a) & ::(b))` — the most recent common ancestor
+/// of the two revisions. Returns `Ok(None)` when the revisions have no common
+/// ancestor (unrelated histories).
+///
+/// ```no_run
+/// # use std::path::Path;
+/// # use vcs_runner::jj_merge_base;
+/// let repo = Path::new("/repo");
+/// let base = jj_merge_base(repo, "trunk()", "@")?;
+/// # Ok::<(), vcs_runner::RunError>(())
+/// ```
+pub fn jj_merge_base(
+    repo_path: &Path,
+    a: &str,
+    b: &str,
+) -> Result<Option<String>, RunError> {
+    let revset = format!("latest(::({a}) & ::({b}))");
+    let output = run_jj(
+        repo_path,
+        &[
+            "log", "-r", &revset, "--no-graph", "--limit", "1", "-T", "commit_id",
+        ],
+    )?;
+    let id = output.stdout_lossy().trim().to_string();
+    Ok(if id.is_empty() { None } else { Some(id) })
+}
+
+/// Find the merge base of two revisions in a git repository.
+///
+/// Returns `Ok(None)` when git reports no common ancestor (exit code 1 with
+/// empty output), `Ok(Some(sha))` when found, `Err(_)` for actual failures.
+///
+/// ```no_run
+/// # use std::path::Path;
+/// # use vcs_runner::git_merge_base;
+/// let repo = Path::new("/repo");
+/// let base = git_merge_base(repo, "origin/main", "HEAD")?;
+/// # Ok::<(), vcs_runner::RunError>(())
+/// ```
+pub fn git_merge_base(
+    repo_path: &Path,
+    a: &str,
+    b: &str,
+) -> Result<Option<String>, RunError> {
+    match run_git(repo_path, &["merge-base", a, b]) {
+        Ok(output) => {
+            let id = output.stdout_lossy().trim().to_string();
+            Ok(if id.is_empty() { None } else { Some(id) })
+        }
+        // git merge-base exits 1 when no common ancestor exists.
+        Err(RunError::NonZeroExit { status, .. }) if status.code() == Some(1) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// Default transient error check for jj/git.
 ///
 /// Retries on:
@@ -812,5 +869,125 @@ mod tests {
         assert!(!checker(&fake_non_zero("other")));
         assert!(checker(&fake_non_zero("this has special text")));
         assert!(!checker(&fake_spawn()));
+    }
+
+    // --- merge_base helpers ---
+
+    #[test]
+    fn git_merge_base_finds_common_ancestor() {
+        if !binary_available("git") {
+            return;
+        }
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let repo = tmp.path();
+
+        // Init repo with one commit
+        let _ = Command::new("git").args(["init"]).current_dir(repo).output();
+        let _ = Command::new("git")
+            .args(["config", "user.email", "t@t"])
+            .current_dir(repo)
+            .output();
+        let _ = Command::new("git")
+            .args(["config", "user.name", "t"])
+            .current_dir(repo)
+            .output();
+        std::fs::write(repo.join("a.txt"), "a").expect("write test file");
+        let _ = Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo)
+            .output();
+        let _ = Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(repo)
+            .output();
+
+        // HEAD is merge base with itself
+        let base = git_merge_base(repo, "HEAD", "HEAD").expect("should succeed");
+        assert!(base.is_some());
+        assert_eq!(base.as_deref().map(str::len), Some(40));
+    }
+
+    #[test]
+    fn git_merge_base_unrelated_histories_returns_none() {
+        if !binary_available("git") {
+            return;
+        }
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let repo = tmp.path();
+
+        // Init with one commit on main, then create an orphan branch
+        let _ = Command::new("git").args(["init"]).current_dir(repo).output();
+        let _ = Command::new("git")
+            .args(["config", "user.email", "t@t"])
+            .current_dir(repo)
+            .output();
+        let _ = Command::new("git")
+            .args(["config", "user.name", "t"])
+            .current_dir(repo)
+            .output();
+        std::fs::write(repo.join("a.txt"), "a").expect("write test file");
+        let _ = Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo)
+            .output();
+        let _ = Command::new("git")
+            .args(["commit", "-m", "main-1"])
+            .current_dir(repo)
+            .output();
+        let _ = Command::new("git")
+            .args(["checkout", "--orphan", "alt"])
+            .current_dir(repo)
+            .output();
+        let _ = Command::new("git")
+            .args(["rm", "-rf", "."])
+            .current_dir(repo)
+            .output();
+        std::fs::write(repo.join("b.txt"), "b").expect("write test file");
+        let _ = Command::new("git")
+            .args(["add", "."])
+            .current_dir(repo)
+            .output();
+        let _ = Command::new("git")
+            .args(["commit", "-m", "alt-1"])
+            .current_dir(repo)
+            .output();
+
+        // alt and main have no common ancestor
+        let result = git_merge_base(repo, "alt", "main");
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[test]
+    fn git_merge_base_invalid_ref_returns_err() {
+        if !binary_available("git") {
+            return;
+        }
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let _ = Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output();
+        let result = git_merge_base(tmp.path(), "nonexistent-ref-xyz", "HEAD");
+        // Invalid refs produce exit code 128, which is a real error (not None).
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn jj_merge_base_same_rev_returns_self() {
+        if !binary_available("jj") {
+            return;
+        }
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let repo = tmp.path();
+        let _ = Command::new("jj")
+            .args(["git", "init"])
+            .current_dir(repo)
+            .output();
+
+        // @ with @ should be @ itself
+        let base = jj_merge_base(repo, "@", "@");
+        // Empty fresh repo — @ exists but may or may not have a commit_id
+        // depending on jj version. Just check the call succeeds.
+        assert!(base.is_ok());
     }
 }

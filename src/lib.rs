@@ -1,27 +1,31 @@
 mod detect;
 mod error;
+#[cfg(feature = "git-parse")]
+mod parse_git;
 #[cfg(feature = "jj-parse")]
-mod parse;
+mod parse_jj;
 mod runner;
 mod types;
 
 pub use detect::{VcsBackend, detect_vcs};
 pub use error::RunError;
+#[cfg(feature = "git-parse")]
+pub use parse_git::parse_git_diff_name_status;
 #[cfg(feature = "jj-parse")]
-pub use parse::{
+pub use parse_jj::{
     BOOKMARK_TEMPLATE, LOG_TEMPLATE, BookmarkParseResult, LogParseResult, parse_bookmark_output,
-    parse_log_output, parse_remote_list,
+    parse_diff_summary, parse_log_output, parse_remote_list,
 };
 pub use runner::{
-    RunOutput, binary_available, binary_version, is_transient_error, run_cmd, run_cmd_in,
-    run_cmd_in_with_env, run_cmd_in_with_timeout, run_cmd_inherited, run_git,
+    RunOutput, binary_available, binary_version, git_merge_base, is_transient_error, jj_merge_base,
+    run_cmd, run_cmd_in, run_cmd_in_with_env, run_cmd_in_with_timeout, run_cmd_inherited, run_git,
     run_git_with_retry, run_git_with_timeout, run_jj, run_jj_with_retry, run_jj_with_timeout,
     run_with_retry,
 };
+#[cfg(any(feature = "jj-parse", feature = "git-parse"))]
+pub use types::{FileChange, FileChangeKind};
 #[cfg(feature = "jj-parse")]
-pub use types::{
-    Bookmark, ConflictState, ContentState, GitRemote, LogEntry, RemoteStatus, WorkingCopy,
-};
+pub use types::{Bookmark, ConflictState, ContentState, GitRemote, LogEntry, RemoteStatus, WorkingCopy};
 
 /// Check whether the `jj` binary is available on PATH.
 pub fn jj_available() -> bool {

@@ -1,9 +1,11 @@
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use serde::Deserialize;
 
 use crate::types::{
-    Bookmark, ConflictState, ContentState, GitRemote, LogEntry, RemoteStatus, WorkingCopy,
+    Bookmark, ConflictState, ContentState, FileChange, FileChangeKind, GitRemote, LogEntry,
+    RemoteStatus, WorkingCopy,
 };
 
 /// jj template for `jj bookmark list` producing line-delimited JSON.
@@ -225,6 +227,57 @@ pub fn parse_remote_list(output: &str) -> Vec<GitRemote> {
             Some(GitRemote { name, url })
         })
         .collect()
+}
+
+/// Parse `jj diff --summary` output into structured [`FileChange`] values.
+///
+/// jj produces lines like:
+/// ```text
+/// M path/to/file.rs
+/// A new_file.rs
+/// D removed.rs
+/// R old/path.rs -> new/path.rs
+/// C from.rs -> to.rs
+/// ```
+///
+/// Unknown status letters are skipped. Blank lines are skipped.
+pub fn parse_diff_summary(output: &str) -> Vec<FileChange> {
+    let mut changes = Vec::new();
+    for line in output.lines() {
+        let line = line.trim_end();
+        if line.is_empty() {
+            continue;
+        }
+        let Some((kind_str, rest)) = line.split_once(' ') else {
+            continue;
+        };
+        let kind = match kind_str {
+            "M" => FileChangeKind::Modified,
+            "A" => FileChangeKind::Added,
+            "D" => FileChangeKind::Deleted,
+            "R" => FileChangeKind::Renamed,
+            "C" => FileChangeKind::Copied,
+            _ => continue,
+        };
+
+        match kind {
+            FileChangeKind::Renamed | FileChangeKind::Copied => {
+                if let Some((from, to)) = rest.split_once(" -> ") {
+                    changes.push(FileChange {
+                        kind,
+                        path: PathBuf::from(to),
+                        from_path: Some(PathBuf::from(from)),
+                    });
+                }
+            }
+            _ => changes.push(FileChange {
+                kind,
+                path: PathBuf::from(rest),
+                from_path: None,
+            }),
+        }
+    }
+    changes
 }
 
 #[cfg(test)]
@@ -474,5 +527,90 @@ mod tests {
         assert!(LOG_TEMPLATE.contains("commitId"));
         assert!(LOG_TEMPLATE.contains("description"));
         assert!(LOG_TEMPLATE.contains("conflict"));
+    }
+
+    // --- parse_diff_summary ---
+
+    #[test]
+    fn diff_summary_empty() {
+        assert!(parse_diff_summary("").is_empty());
+    }
+
+    #[test]
+    fn diff_summary_modified() {
+        let changes = parse_diff_summary("M src/lib.rs");
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].kind, FileChangeKind::Modified);
+        assert_eq!(changes[0].path, PathBuf::from("src/lib.rs"));
+        assert_eq!(changes[0].from_path, None);
+    }
+
+    #[test]
+    fn diff_summary_added() {
+        let changes = parse_diff_summary("A new_file.rs");
+        assert_eq!(changes[0].kind, FileChangeKind::Added);
+        assert_eq!(changes[0].path, PathBuf::from("new_file.rs"));
+    }
+
+    #[test]
+    fn diff_summary_deleted() {
+        let changes = parse_diff_summary("D old.rs");
+        assert_eq!(changes[0].kind, FileChangeKind::Deleted);
+        assert_eq!(changes[0].path, PathBuf::from("old.rs"));
+    }
+
+    #[test]
+    fn diff_summary_renamed() {
+        let changes = parse_diff_summary("R old/path.rs -> new/path.rs");
+        assert_eq!(changes[0].kind, FileChangeKind::Renamed);
+        assert_eq!(changes[0].path, PathBuf::from("new/path.rs"));
+        assert_eq!(changes[0].from_path, Some(PathBuf::from("old/path.rs")));
+    }
+
+    #[test]
+    fn diff_summary_copied() {
+        let changes = parse_diff_summary("C src/a.rs -> src/b.rs");
+        assert_eq!(changes[0].kind, FileChangeKind::Copied);
+        assert_eq!(changes[0].path, PathBuf::from("src/b.rs"));
+        assert_eq!(changes[0].from_path, Some(PathBuf::from("src/a.rs")));
+    }
+
+    #[test]
+    fn diff_summary_multiple() {
+        let output = "M a.rs\nA b.rs\nD c.rs\nR old.rs -> new.rs";
+        let changes = parse_diff_summary(output);
+        assert_eq!(changes.len(), 4);
+        assert_eq!(changes[0].kind, FileChangeKind::Modified);
+        assert_eq!(changes[1].kind, FileChangeKind::Added);
+        assert_eq!(changes[2].kind, FileChangeKind::Deleted);
+        assert_eq!(changes[3].kind, FileChangeKind::Renamed);
+    }
+
+    #[test]
+    fn diff_summary_skips_blank_lines() {
+        let output = "\nM a.rs\n\nA b.rs\n\n";
+        let changes = parse_diff_summary(output);
+        assert_eq!(changes.len(), 2);
+    }
+
+    #[test]
+    fn diff_summary_skips_unknown_status() {
+        let output = "X mysterious.rs\nM known.rs";
+        let changes = parse_diff_summary(output);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].path, PathBuf::from("known.rs"));
+    }
+
+    #[test]
+    fn diff_summary_path_with_spaces() {
+        let changes = parse_diff_summary("M path with spaces.rs");
+        assert_eq!(changes[0].path, PathBuf::from("path with spaces.rs"));
+    }
+
+    #[test]
+    fn diff_summary_rename_without_arrow_skipped() {
+        // "R" without " -> " is malformed and skipped
+        let changes = parse_diff_summary("R just_one_path.rs");
+        assert!(changes.is_empty());
     }
 }
