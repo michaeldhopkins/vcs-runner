@@ -882,7 +882,10 @@ mod tests {
         let repo = tmp.path();
 
         // Init repo with one commit
-        let _ = Command::new("git").args(["init"]).current_dir(repo).output();
+        let _ = Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(repo)
+            .output();
         let _ = Command::new("git")
             .args(["config", "user.email", "t@t"])
             .current_dir(repo)
@@ -915,8 +918,12 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let repo = tmp.path();
 
-        // Init with one commit on main, then create an orphan branch
-        let _ = Command::new("git").args(["init"]).current_dir(repo).output();
+        // Init with one commit on main, then create an orphan branch.
+        // Use -b main explicitly since CI's git may default to master.
+        let _ = Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(repo)
+            .output();
         let _ = Command::new("git")
             .args(["config", "user.email", "t@t"])
             .current_dir(repo)
