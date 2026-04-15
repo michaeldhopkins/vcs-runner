@@ -1,3 +1,9 @@
+//! VCS-specific helpers built on [`procpilot`]. Adds jj/git shorthand
+//! wrappers, repo detection, and output parsers.
+//!
+//! For generic subprocess execution (stdin, retry, timeout, custom envs),
+//! use [`procpilot::Cmd`] directly — it's re-exported here for convenience.
+
 mod detect;
 mod error;
 #[cfg(feature = "git-parse")]
@@ -17,11 +23,17 @@ pub use parse_jj::{
     parse_diff_summary, parse_log_output, parse_remote_list,
 };
 pub use runner::{
-    RunOutput, binary_available, binary_version, git_merge_base, is_transient_error, jj_merge_base,
-    run_cmd, run_cmd_in, run_cmd_in_with_env, run_cmd_in_with_timeout, run_cmd_inherited, run_git,
-    run_git_with_retry, run_git_with_timeout, run_jj, run_jj_with_retry, run_jj_with_timeout,
-    run_with_retry,
+    git_merge_base, is_transient_error, jj_merge_base, run_git, run_git_with_retry,
+    run_git_with_timeout, run_jj, run_jj_with_retry, run_jj_with_timeout,
 };
+
+// Re-export procpilot's generic subprocess API so vcs-runner consumers have
+// one dependency. Prefer these for anything non-VCS-specific.
+pub use procpilot::{
+    BeforeSpawnHook, Cmd, CmdDisplay, Redirection, RetryPolicy, RunOutput, STREAM_SUFFIX_SIZE,
+    StdinData, binary_available, binary_version, default_transient,
+};
+
 #[cfg(any(feature = "jj-parse", feature = "git-parse"))]
 pub use types::{FileChange, FileChangeKind};
 #[cfg(feature = "jj-parse")]
@@ -57,13 +69,12 @@ mod tests {
     }
 
     #[test]
-    fn jj_version_returns_option() {
-        let version = jj_version();
+    fn jj_version_matches_availability() {
         if jj_available() {
-            let v = version.expect("should have version when jj is available");
+            let v = jj_version().expect("jj is installed");
             assert!(v.contains("jj"));
         } else {
-            assert!(version.is_none());
+            assert!(jj_version().is_none());
         }
     }
 
@@ -73,13 +84,12 @@ mod tests {
     }
 
     #[test]
-    fn git_version_returns_option() {
-        let version = git_version();
+    fn git_version_matches_availability() {
         if git_available() {
-            let v = version.expect("should have version when git is available");
+            let v = git_version().expect("git is installed");
             assert!(v.contains("git"));
         } else {
-            assert!(version.is_none());
+            assert!(git_version().is_none());
         }
     }
 }
