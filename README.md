@@ -16,7 +16,7 @@ Subprocess runner for [jj](https://jj-vcs.github.io/jj/) and git CLI tools, with
 
 ```toml
 [dependencies]
-vcs-runner = "0.9"
+vcs-runner = "0.10"
 ```
 
 ### Cargo features
@@ -28,7 +28,7 @@ Git-only consumers can skip jj parsing:
 
 ```toml
 [dependencies]
-vcs-runner = { version = "0.9", default-features = false, features = ["git-parse"] }
+vcs-runner = { version = "0.10", default-features = false, features = ["git-parse"] }
 ```
 
 ## Running commands
@@ -103,31 +103,25 @@ The timeout implementation drains stdout/stderr in background threads, so a chat
 
 ### Commands other than jj/git
 
+For any non-VCS subprocess, use [`Cmd`](https://docs.rs/procpilot/latest/procpilot/struct.Cmd.html) — re-exported from [`procpilot`](https://crates.io/crates/procpilot), so one `vcs-runner` dep covers both.
+
 ```rust
 use std::time::Duration;
-use vcs_runner::{
-    run_cmd, run_cmd_in, run_cmd_in_with_env, run_cmd_in_with_timeout, run_cmd_inherited,
-};
+use vcs_runner::{Cmd, Redirection};
 
-// Captured output
-let output = run_cmd("mise", &["env"])?;
+// Captured output with env, cwd, timeout — all composable.
+let output = Cmd::new("make")
+    .args(["test"])
+    .in_dir(&repo_path)
+    .env("CARGO_TARGET_DIR", "/tmp/target")
+    .timeout(Duration::from_secs(60))
+    .run()?;
 
-// In a specific directory
-let output = run_cmd_in(&repo_path, "make", &["build"])?;
+// Pipe stdin into a child (kubectl apply -f -, docker build -, etc.)
+Cmd::new("kubectl").args(["apply", "-f", "-"]).stdin(manifest_yaml).run()?;
 
-// With environment variables (e.g., for GIT_INDEX_FILE)
-let output = run_cmd_in_with_env(
-    &repo_path, "git", &["add", "-N", "--", "file.rs"],
-    &[("GIT_INDEX_FILE", "/tmp/index.tmp")],
-)?;
-
-// With a timeout
-let output = run_cmd_in_with_timeout(
-    &repo_path, "make", &["test"], Duration::from_secs(60),
-)?;
-
-// Inherited I/O (user sees output directly)
-run_cmd_inherited("cargo", &["test"])?;
+// Let stderr stream to the user (live progress)
+Cmd::new("cargo").args(["build"]).stderr(Redirection::Inherit).run()?;
 ```
 
 ## Repository detection

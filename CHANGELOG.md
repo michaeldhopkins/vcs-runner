@@ -4,6 +4,21 @@ All notable changes to vcs-runner are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-04-14
+
+### Breaking changes
+
+- **Generic subprocess primitives removed.** `run_cmd`, `run_cmd_in`, `run_cmd_in_with_env`, `run_cmd_in_with_timeout`, `run_cmd_inherited`, and `run_with_retry` are gone. Use [`procpilot::Cmd`] — re-exported as `vcs_runner::Cmd` — instead.
+- **`RunError` is now `procpilot::RunError`.** Field shape changed: variants carry `command: CmdDisplay` instead of `program: String` + `args: Vec<String>`. Stdout/stderr on `NonZeroExit` / `Timeout` are truncated to the last 128 KiB.
+- **Retry predicates now require `Send + Sync + 'static`** (procpilot's retry policy stores them in an `Arc`).
+- Migration: `run_cmd_in(&dir, "git", &["status"])` → `Cmd::new("git").in_dir(&dir).args(["status"]).run()`. Error field `{ program, args }` → `{ command }`; `err.program()` still works.
+
+### Changed
+
+- `vcs-runner` now depends on [`procpilot`] for all subprocess execution. VCS-specific helpers (`run_jj`, `run_git`, `*_with_timeout`, `*_with_retry`, `jj_merge_base`, `git_merge_base`, `is_transient_error`) are preserved as thin wrappers.
+- Re-exports `procpilot::{Cmd, CmdDisplay, Redirection, RetryPolicy, RunOutput, StdinData, binary_available, binary_version, default_transient, STREAM_SUFFIX_SIZE}` so consumers need only one dependency.
+- `is_transient_error` now delegates to `procpilot::default_transient` (same semantics).
+
 ## [0.9.2] - 2026-04-14
 
 ### Miscellaneous
