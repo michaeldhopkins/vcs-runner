@@ -39,6 +39,11 @@ jobs:
       - name: cargo clippy (no default features)
         run: cargo clippy --locked --no-default-features --all-targets -- -D warnings
 
+      - name: cargo doc (catches broken links)
+        run: cargo doc --locked --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
       - uses: taiki-e/install-action@cargo-deny
 
       - name: cargo deny check licenses
