@@ -1,6 +1,6 @@
 [package]
 name = "vcs-runner"
-version = "0.9.1"
+version = "0.9.2"
 edition = "2024"
 rust-version = "1.91"
 description = "Subprocess runner for jj and git with retry, timeouts, repo detection, and structured output parsing"
@@ -10,11 +10,24 @@ homepage = "https://github.com/michaeldhopkins/vcs-runner"
 readme = "README.md"
 keywords = ["jujutsu", "jj", "git", "subprocess", "vcs"]
 categories = ["development-tools"]
+# Dev-only files excluded from the published crate.
+exclude = [
+    "scripts/",
+    ".github/",
+    "CLAUDE.md",
+    "cliff.toml",
+    "clippy.toml",
+    "deny.toml",
+]
 
 [features]
 default = ["jj-parse", "git-parse"]
 jj-parse = ["dep:serde", "dep:serde_json"]
 git-parse = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 anyhow = "1"
