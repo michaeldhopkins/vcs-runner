@@ -30,8 +30,9 @@ pub use runner::{
 // Re-export procpilot's generic subprocess API so vcs-runner consumers have
 // one dependency. Prefer these for anything non-VCS-specific.
 pub use procpilot::{
-    Cmd, CmdDisplay, Redirection, RetryPolicy, RunOutput, STREAM_SUFFIX_SIZE, SpawnedProcess,
-    StdinData, binary_available, binary_version, default_transient,
+    Cmd, CmdDisplay, DefaultRunner, Redirection, RetryPolicy, RunOutput, Runner,
+    STREAM_SUFFIX_SIZE, SpawnedProcess, StdinData, binary_available, binary_version,
+    default_transient,
 };
 
 #[cfg(any(feature = "jj-parse", feature = "git-parse"))]

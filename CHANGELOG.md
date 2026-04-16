@@ -4,6 +4,17 @@ All notable changes to vcs-runner are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-04-15
+
+### Breaking changes
+
+- **procpilot dep bumped from 0.6 to 0.7.** procpilot renamed `test-helpers` → `mock-binaries`. This doesn't affect vcs-runner consumers (internal feature), but if you depended on procpilot directly for that feature, update accordingly.
+
+### Features
+
+- Re-exports `procpilot::Runner` and `procpilot::DefaultRunner` — available via `vcs_runner::Runner` / `vcs_runner::DefaultRunner` (and the prelude). Downstream code that takes `&dyn Runner` can now be unit-tested with `procpilot::testing::MockRunner` without adding a separate procpilot dep for the trait itself.
+- Re-export coverage test updated for procpilot 0.7.0 snapshot.
+
 ## [0.11.1] - 2026-04-15
 
 ### Tests
