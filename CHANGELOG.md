@@ -4,6 +4,21 @@ All notable changes to vcs-runner are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-04-15
+
+### Breaking changes
+
+- **procpilot dep bumped from 0.2 to 0.6.** Most of procpilot's 0.2 → 0.6.x changes are additive on the surface vcs-runner re-exports, but two transitively touch downstream code:
+  - `RunOutput` is now `#[non_exhaustive]`. Downstream struct-literal construction (`RunOutput { stdout, stderr }`) won't compile; use `output.stdout` / `output.stderr` field access (unchanged).
+  - `StdinData` is now `#[non_exhaustive]`. Downstream `match` on the enum needs a wildcard arm.
+- **`BeforeSpawnHook` re-export removed.** procpilot dropped the public type alias; callers pass closures directly to `Cmd::before_spawn`.
+
+### Features
+
+- Re-exports `procpilot::SpawnedProcess` for spawn-handle access.
+- New `vcs_runner::prelude` module — `use vcs_runner::prelude::*;` brings in procpilot's prelude plus the VCS helpers (`run_jj`, `run_git`, `*_with_timeout`, `*_with_retry`, `jj_merge_base`, `git_merge_base`, `is_transient_error`, `*_available`, `*_version`, `detect_vcs`, `VcsBackend`).
+- All of procpilot 0.6's additions are reachable through vcs-runner: `Cmd::pipe` / `|` for pipelines, `Cmd::spawn` for `SpawnedProcess`, and (with procpilot's `tokio` feature) `Cmd::run_async` / `Cmd::spawn_async`.
+
 ## [0.10.0] - 2026-04-14
 
 ### Breaking changes
