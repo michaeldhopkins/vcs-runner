@@ -4,6 +4,12 @@ All notable changes to vcs-runner are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-04-15
+
+### Tests
+
+- New `tests/reexport_coverage.rs` audit: a compile-time check that every procpilot pub item we re-export resolves on both sides. Bumping the procpilot dep version is now a guided exercise — read procpilot's CHANGELOG, decide for each new item, update the snapshot.
+
 ## [0.11.0] - 2026-04-15
 
 ### Breaking changes
