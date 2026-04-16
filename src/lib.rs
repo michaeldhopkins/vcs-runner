@@ -23,8 +23,10 @@ pub use parse_jj::{
     parse_diff_summary, parse_log_output, parse_remote_list,
 };
 pub use runner::{
-    git_merge_base, is_transient_error, jj_merge_base, run_git, run_git_with_retry,
-    run_git_with_timeout, run_jj, run_jj_with_retry, run_jj_with_timeout,
+    git_merge_base, is_transient_error, jj_merge_base, run_git, run_git_utf8,
+    run_git_utf8_with_retry, run_git_utf8_with_timeout, run_git_with_retry, run_git_with_timeout,
+    run_jj, run_jj_utf8, run_jj_utf8_with_retry, run_jj_utf8_with_timeout, run_jj_with_retry,
+    run_jj_with_timeout,
 };
 
 // Re-export procpilot's generic subprocess API so vcs-runner consumers have
@@ -57,8 +59,9 @@ pub mod prelude {
 
     pub use crate::{
         VcsBackend, detect_vcs, git_available, git_merge_base, git_version, is_transient_error,
-        jj_available, jj_merge_base, jj_version, run_git, run_git_with_retry, run_git_with_timeout,
-        run_jj, run_jj_with_retry, run_jj_with_timeout,
+        jj_available, jj_merge_base, jj_version, run_git, run_git_utf8, run_git_utf8_with_retry,
+        run_git_utf8_with_timeout, run_git_with_retry, run_git_with_timeout, run_jj, run_jj_utf8,
+        run_jj_utf8_with_retry, run_jj_utf8_with_timeout, run_jj_with_retry, run_jj_with_timeout,
     };
 }
 

@@ -20,6 +20,61 @@ pub fn run_git(repo_path: &Path, args: &[&str]) -> Result<RunOutput, RunError> {
     Cmd::new("git").in_dir(repo_path).args(args).run()
 }
 
+/// Run a `jj` command, returning lossy-decoded, trimmed stdout as a `String`.
+///
+/// Shorthand for `run_jj(repo_path, args)?.stdout_lossy().trim().to_string()`
+/// — the most common pattern for callers that treat stdout as text.
+pub fn run_jj_utf8(repo_path: &Path, args: &[&str]) -> Result<String, RunError> {
+    let out = run_jj(repo_path, args)?;
+    Ok(out.stdout_lossy().trim().to_string())
+}
+
+/// Run a `git` command, returning lossy-decoded, trimmed stdout as a `String`.
+pub fn run_git_utf8(repo_path: &Path, args: &[&str]) -> Result<String, RunError> {
+    let out = run_git(repo_path, args)?;
+    Ok(out.stdout_lossy().trim().to_string())
+}
+
+/// Run a `jj` command with a timeout, returning trimmed stdout as a `String`.
+pub fn run_jj_utf8_with_timeout(
+    repo_path: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<String, RunError> {
+    let out = run_jj_with_timeout(repo_path, args, timeout)?;
+    Ok(out.stdout_lossy().trim().to_string())
+}
+
+/// Run a `git` command with a timeout, returning trimmed stdout as a `String`.
+pub fn run_git_utf8_with_timeout(
+    repo_path: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<String, RunError> {
+    let out = run_git_with_timeout(repo_path, args, timeout)?;
+    Ok(out.stdout_lossy().trim().to_string())
+}
+
+/// Run a `jj` command with retry, returning trimmed stdout as a `String`.
+pub fn run_jj_utf8_with_retry(
+    repo_path: &Path,
+    args: &[&str],
+    is_transient: impl Fn(&RunError) -> bool + Send + Sync + 'static,
+) -> Result<String, RunError> {
+    let out = run_jj_with_retry(repo_path, args, is_transient)?;
+    Ok(out.stdout_lossy().trim().to_string())
+}
+
+/// Run a `git` command with retry, returning trimmed stdout as a `String`.
+pub fn run_git_utf8_with_retry(
+    repo_path: &Path,
+    args: &[&str],
+    is_transient: impl Fn(&RunError) -> bool + Send + Sync + 'static,
+) -> Result<String, RunError> {
+    let out = run_git_with_retry(repo_path, args, is_transient)?;
+    Ok(out.stdout_lossy().trim().to_string())
+}
+
 /// Run a `jj` command with a timeout.
 pub fn run_jj_with_timeout(
     repo_path: &Path,
@@ -83,13 +138,12 @@ pub fn jj_merge_base(
     b: &str,
 ) -> Result<Option<String>, RunError> {
     let revset = format!("latest(::({a}) & ::({b}))");
-    let output = run_jj(
+    let id = run_jj_utf8(
         repo_path,
         &[
             "log", "-r", &revset, "--no-graph", "--limit", "1", "-T", "commit_id",
         ],
     )?;
-    let id = output.stdout_lossy().trim().to_string();
     Ok(if id.is_empty() { None } else { Some(id) })
 }
 
@@ -102,11 +156,8 @@ pub fn git_merge_base(
     a: &str,
     b: &str,
 ) -> Result<Option<String>, RunError> {
-    match run_git(repo_path, &["merge-base", a, b]) {
-        Ok(output) => {
-            let id = output.stdout_lossy().trim().to_string();
-            Ok(if id.is_empty() { None } else { Some(id) })
-        }
+    match run_git_utf8(repo_path, &["merge-base", a, b]) {
+        Ok(id) => Ok(if id.is_empty() { None } else { Some(id) }),
         Err(RunError::NonZeroExit { status, .. }) if status.code() == Some(1) => Ok(None),
         Err(e) => Err(e),
     }
