@@ -4,6 +4,16 @@ All notable changes to vcs-runner are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-04-15
+
+### Features
+
+- **`run_jj_utf8` / `run_git_utf8`** — return lossy-decoded, trimmed stdout as `String` instead of `RunOutput`. Covers the most common call pattern for callers that treat subprocess stdout as text. Timeout and retry variants included: `run_jj_utf8_with_timeout`, `run_git_utf8_with_timeout`, `run_jj_utf8_with_retry`, `run_git_utf8_with_retry`. All added to the prelude.
+
+### Internal
+
+- `jj_merge_base` and `git_merge_base` now use the `_utf8` helpers internally, removing repeated `.stdout_lossy().trim().to_string()` calls.
+
 ## [0.12.0] - 2026-04-15
 
 ### Breaking changes
