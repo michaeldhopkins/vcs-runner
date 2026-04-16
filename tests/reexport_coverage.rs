@@ -17,31 +17,35 @@
 //!   - procpilot added a new item we should re-export but forgot. Step 2
 //!     above is the only mitigation; this test trusts the author did it.
 
-// Snapshot vintage: procpilot 0.6.1.
+// Snapshot vintage: procpilot 0.7.0.
 
 #[allow(unused_imports, dead_code)]
 mod upstream_surface {
     pub use procpilot::{
-        Cmd, CmdDisplay, Redirection, RetryPolicy, RunError, RunOutput, STREAM_SUFFIX_SIZE,
-        SpawnedProcess, StdinData, binary_available, binary_version, default_transient,
+        Cmd, CmdDisplay, DefaultRunner, Redirection, RetryPolicy, RunError, RunOutput, Runner,
+        STREAM_SUFFIX_SIZE, SpawnedProcess, StdinData, binary_available, binary_version,
+        default_transient,
     };
 }
 
 #[allow(unused_imports, dead_code)]
 mod our_reexports {
     pub use vcs_runner::{
-        Cmd, CmdDisplay, Redirection, RetryPolicy, RunError, RunOutput, STREAM_SUFFIX_SIZE,
-        SpawnedProcess, StdinData, binary_available, binary_version, default_transient,
+        Cmd, CmdDisplay, DefaultRunner, Redirection, RetryPolicy, RunError, RunOutput, Runner,
+        STREAM_SUFFIX_SIZE, SpawnedProcess, StdinData, binary_available, binary_version,
+        default_transient,
     };
 }
 
 // Intentionally not re-exported from procpilot:
 //   - procpilot::AsyncSpawnedProcess: gated on procpilot's `tokio` feature,
-//     which vcs-runner does not currently forward. If a downstream consumer
-//     wants async, they take a direct procpilot dep with the `tokio` feature.
+//     which vcs-runner does not currently forward.
 //   - procpilot::prelude: vcs-runner has its own prelude that includes
-//     procpilot's via `pub use procpilot::prelude::*;` — re-exporting the
-//     module name itself would shadow vcs-runner's prelude.
+//     procpilot's via `pub use procpilot::prelude::*;`.
+//   - procpilot::testing module (MockRunner, MockResult, helpers): gated
+//     on procpilot's `testing` feature, which vcs-runner does not forward.
+//     Downstream consumers who want mocks add procpilot directly with
+//     features = ["testing"].
 
 #[test]
 fn reexport_audit_compiles() {}
