@@ -30,7 +30,7 @@ pub use runner::{
 // Re-export procpilot's generic subprocess API so vcs-runner consumers have
 // one dependency. Prefer these for anything non-VCS-specific.
 pub use procpilot::{
-    BeforeSpawnHook, Cmd, CmdDisplay, Redirection, RetryPolicy, RunOutput, STREAM_SUFFIX_SIZE,
+    Cmd, CmdDisplay, Redirection, RetryPolicy, RunOutput, STREAM_SUFFIX_SIZE, SpawnedProcess,
     StdinData, binary_available, binary_version, default_transient,
 };
 
@@ -38,6 +38,28 @@ pub use procpilot::{
 pub use types::{FileChange, FileChangeKind};
 #[cfg(feature = "jj-parse")]
 pub use types::{Bookmark, ConflictState, ContentState, GitRemote, LogEntry, RemoteStatus, WorkingCopy};
+
+/// Common types and helpers for everyday VCS subprocess work.
+///
+/// `use vcs_runner::prelude::*;` brings in procpilot's standard set
+/// (`Cmd`, `RunError`, `RunOutput`, `Redirection`, `RetryPolicy`,
+/// `StdinData`, `SpawnedProcess`) plus the VCS-specific helpers
+/// (`run_jj`, `run_git`, retry/timeout variants, `jj_merge_base`,
+/// `git_merge_base`, `is_transient_error`, and the binary-availability
+/// checks).
+///
+/// Parser types and constants (`LogEntry`, `BOOKMARK_TEMPLATE`, …) stay
+/// out of the prelude — those callers know they need them and can
+/// import explicitly.
+pub mod prelude {
+    pub use procpilot::prelude::*;
+
+    pub use crate::{
+        VcsBackend, detect_vcs, git_available, git_merge_base, git_version, is_transient_error,
+        jj_available, jj_merge_base, jj_version, run_git, run_git_with_retry, run_git_with_timeout,
+        run_jj, run_jj_with_retry, run_jj_with_timeout,
+    };
+}
 
 /// Check whether the `jj` binary is available on PATH.
 pub fn jj_available() -> bool {
