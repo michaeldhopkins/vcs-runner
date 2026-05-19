@@ -17,7 +17,11 @@
 //!   - procpilot added a new item we should re-export but forgot. Step 2
 //!     above is the only mitigation; this test trusts the author did it.
 
-// Snapshot vintage: procpilot 0.7.0.
+// Snapshot vintage: procpilot 0.8.0.
+//   - 0.8.0 added Cmd::cancel / Cmd::cancel_grace methods, RunError::Cancelled
+//     variant, RunError::is_cancelled / attempts accessors. No new top-level
+//     types to re-export; existing Cmd / RunError re-exports surface the new
+//     API automatically.
 
 #[allow(unused_imports, dead_code)]
 mod upstream_surface {

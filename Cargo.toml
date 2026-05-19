@@ -1,6 +1,6 @@
 [package]
 name = "vcs-runner"
-version = "0.12.1"
+version = "0.13.0"
 edition = "2024"
 rust-version = "1.91"
 description = "Subprocess runner for jj and git with retry, timeouts, repo detection, and structured output parsing"
@@ -31,7 +31,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 anyhow = "1"
-procpilot = "0.7"
+procpilot = "0.8"
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 

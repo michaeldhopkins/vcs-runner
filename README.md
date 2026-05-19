@@ -73,9 +73,10 @@ match run_git(&repo_path, &["show", "possibly-missing-ref"]) {
 `RunError` implements `std::error::Error`, so `?` into `anyhow::Result` works when you don't care about the distinction.
 
 Inspection methods on `RunError`:
-- `err.is_non_zero_exit()` / `err.is_spawn_failure()` / `err.is_timeout()` — check the variant
-- `err.stderr()` — captured stderr on `NonZeroExit`/`Timeout`, `None` on `Spawn`
+- `err.is_non_zero_exit()` / `err.is_spawn_failure()` / `err.is_timeout()` / `err.is_cancelled()` — check the variant
+- `err.stderr()` — captured stderr on `NonZeroExit`/`Timeout`/`Cancelled`, `None` on `Spawn`
 - `err.exit_status()` — exit status on `NonZeroExit`, `None` on others
+- `err.attempts()` — 1-based attempt count (relevant after `*_with_retry*`)
 - `err.program()` — the program name that failed
 
 `RunError` is marked `#[non_exhaustive]`, so new variants can be added in future versions without breaking your match arms (add a wildcard fallback).
@@ -100,6 +101,44 @@ match run_git_with_timeout(&repo_path, &["fetch"], Duration::from_secs(30)) {
 The timeout implementation drains stdout/stderr in background threads, so a chatty process can't block on pipe-buffer overflow. Any output collected before the kill is returned in the `Timeout` error variant.
 
 **Caveat on grandchildren:** the kill signal reaches only the direct child. A shell wrapper like `sh -c "git fetch"` forks `git` as a grandchild that survives the shell's kill. Use `exec` in the shell (`sh -c "exec git fetch"`) or invoke `git` directly to avoid this.
+
+### Cancellation
+
+When a wall-clock timeout doesn't fit — e.g. a TUI event loop where the user
+pressing `q` should immediately abort an in-flight `jj`/`git` call — thread an
+`Arc<AtomicBool>` flag through the cancellable variants:
+
+```rust
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use vcs_runner::{run_jj_cancellable, RunError};
+
+let cancel = Arc::new(AtomicBool::new(false));
+let cancel_clone = Arc::clone(&cancel);
+
+// UI thread: fire the flag the moment the operation is obsolete.
+std::thread::spawn(move || {
+    // ... wait for user to quit ...
+    cancel_clone.store(true, Ordering::Relaxed);
+});
+
+match run_jj_cancellable(&repo_path, &["log", "-r", "all()"], cancel) {
+    Ok(out) => println!("{}", out.stdout_lossy()),
+    Err(RunError::Cancelled { .. }) => { /* user quit — exit cleanly */ }
+    Err(e) => return Err(e.into()),
+}
+```
+
+If the flag is already set when the helper is called, the child is never
+spawned. If it fires mid-flight, the child receives SIGTERM (then SIGKILL
+after a short grace) and the helper returns `RunError::Cancelled` with any
+output captured before the kill.
+
+Cancellation composes with retry — `run_jj_with_retry_cancellable` /
+`run_git_with_retry_cancellable` short-circuit any pending backoff sleep
+when the flag fires, and the default transient-error predicate does not
+retry `Cancelled` (the caller asked to stop, so we stop). Each variant has
+a `_utf8` counterpart that returns trimmed stdout as `String`.
 
 ### Commands other than jj/git
 

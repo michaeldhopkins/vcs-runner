@@ -4,6 +4,21 @@ All notable changes to vcs-runner are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-05-18
+
+### Breaking changes
+
+- **procpilot dep bumped from 0.7 to 0.8.** procpilot added an `attempts: u32` field to the `RunError::NonZeroExit` and `RunError::Timeout` struct variants (the field also appears on the new `Cancelled` variant). Downstream code that destructures these variants by field name without `..` will fail to compile — add `attempts` to the pattern, switch to `..`, or prefer the `err.attempts()` accessor. Matches using `..` or wildcard arms, and the `is_*` / `attempts()` accessors, are unaffected.
+
+### Features
+
+- **`run_jj_cancellable` / `run_git_cancellable`** and their `_utf8`, `_with_retry`, and `_with_retry_utf8` siblings. Each takes an `Arc<AtomicBool>` cancel flag; when the flag fires the wrapper kills the child (SIGTERM → SIGKILL after procpilot's default grace) and returns the new `RunError::Cancelled` variant. A pre-set flag short-circuits before spawning the child. The retry variants short-circuit any pending backoff sleep, and the default transient-error predicate does not retry `Cancelled`. All eight helpers are added to the prelude. Motivated by TUI consumers (e.g. `branchdiff`) that need precise event-loop-driven cancellation of in-flight VCS calls, which wall-clock `timeout` cannot express. See [vcs-runner#1](https://github.com/michaeldhopkins/vcs-runner/issues/1) and [procpilot#1](https://github.com/michaeldhopkins/procpilot/issues/1) for design context.
+- New `RunError` accessors surface automatically through the existing re-export: `is_cancelled()` and `attempts()`.
+
+### Internal
+
+- Re-export coverage test updated for procpilot 0.8.0 snapshot (no new top-level types — the new API surfaces through the existing `Cmd` and `RunError` re-exports).
+
 ## [0.12.1] - 2026-04-15
 
 ### Features
