@@ -199,6 +199,56 @@ if let Some(base) = git_merge_base(&repo, "origin/main", "HEAD")? {
 }
 ```
 
+## Operation log
+
+Helpers for jj's operation log — enough to detect and recover from a concurrent
+op-log reconcile. When a second jj process mutates the same working copy (say a
+background watcher racing a foreground command), the operation log forks and jj
+silently "reconciles divergent operations" by merging the two heads, which can
+corrupt the working state. The pattern: record a known-good operation before
+mutating, and if a reconcile happened, roll back to it.
+
+```rust
+use vcs_runner::{
+    jj_current_operation_id, jj_operation_log, jj_divergent_change_ids,
+    jj_is_divergent_at_operation, jj_op_restore,
+};
+
+// Record a known-good operation before a batch of mutations.
+let good = jj_current_operation_id(&repo)?;
+
+// ... run mutations (fetch, rebase, push) ...
+
+// A concurrent writer forced a reconcile if a "reconcile divergent operations"
+// op appeared, or divergent change ids now exist.
+let reconciled = jj_operation_log(&repo, 20)?
+    .iter()
+    .any(|op| op.description.contains("reconcile divergent operations"));
+if reconciled || !jj_divergent_change_ids(&repo)?.is_empty() {
+    // Roll back to the known-good operation, discarding jj's mangled auto-merge.
+    jj_op_restore(&repo, &good)?;
+}
+```
+
+For a repo that is *already* divergent (no known-good op held), walk back to the
+most recent clean operation and restore to that:
+
+```rust
+use vcs_runner::{jj_operation_log, jj_is_divergent_at_operation, jj_op_restore};
+
+if let Some(clean) = jj_operation_log(&repo, 20)?
+    .into_iter()
+    .find(|op| matches!(jj_is_divergent_at_operation(&repo, &op.id), Ok(false)))
+{
+    jj_op_restore(&repo, &clean.id)?;
+}
+```
+
+`jj_op_restore` is colocation-safe: in a colocated repo jj re-exports refs to
+git as part of the restore, so the git side (branch refs, `HEAD`) stays in
+lockstep with jj. Deciding *when* to snapshot and what counts as a good
+operation is application policy — this crate provides the primitives.
+
 ## Parsing jj output
 
 Requires the `jj-parse` feature (on by default). Pre-built templates produce line-delimited JSON; parse functions handle malformed output gracefully.

@@ -1,3 +1,17 @@
+/// A single entry in the jj operation log.
+///
+/// Returned by [`crate::jj_operation_log`]. Ungated (no parsing feature
+/// needed): it's a plain tab-split of `jj op log`, not JSON-templated output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JjOperation {
+    /// The full operation id. Accepted directly by [`crate::jj_op_restore`].
+    pub id: String,
+    /// The operation's first-line description, e.g.
+    /// `"reconcile divergent operations"` — the signature of a concurrent
+    /// writer that forced jj to merge two operation-log heads.
+    pub description: String,
+}
+
 /// Whether a jj commit is the current working copy.
 #[cfg(feature = "jj-parse")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]

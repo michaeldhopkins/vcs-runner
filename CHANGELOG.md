@@ -4,6 +4,16 @@ All notable changes to vcs-runner are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-07-09
+
+### Features
+
+- *(runner)* Jj operation-log helpers for divergence detection + recovery
+
+### Miscellaneous
+
+- Bump action-gh-release to v3
+
 ## [0.13.0] - 2026-05-18
 
 ### Breaking changes
