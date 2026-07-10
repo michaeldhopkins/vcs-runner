@@ -202,52 +202,53 @@ if let Some(base) = git_merge_base(&repo, "origin/main", "HEAD")? {
 ## Operation log
 
 Helpers for jj's operation log — enough to detect and recover from a concurrent
-op-log reconcile. When a second jj process mutates the same working copy (say a
+op-log reconcile. When a second jj process mutates the same repo (say a
 background watcher racing a foreground command), the operation log forks and jj
-silently "reconciles divergent operations" by merging the two heads, which can
-corrupt the working state. The pattern: record a known-good operation before
-mutating, and if a reconcile happened, roll back to it.
+reconciles the two heads. jj **preserves both sides' commits**, so the only
+corruption signature is a *divergent change* — two versions of one change,
+produced when a rebase races the reconcile. That is the signal to gate on, and
+`jj_divergent_change_ids` reports it directly.
+
+The read helpers are **working-copy-agnostic** (`--ignore-working-copy`): they
+never snapshot the user's in-progress edits, and — crucially — they stay
+readable when a concurrent writer has left the working copy stale, which is
+exactly when you need them (a plain read errors "working copy is stale" there).
+Use `run_jj_utf8_ignore_wc` for your own reads, fetches, and pushes so they
+don't perturb the user's checkout either.
 
 ```rust
-use vcs_runner::{
-    jj_current_operation_id, jj_operation_log, jj_divergent_change_ids,
-    jj_is_divergent_at_operation, jj_op_restore,
-};
+use vcs_runner::{jj_current_operation_id, jj_divergent_change_ids, jj_op_restore};
 
-// Record a known-good operation before a batch of mutations.
-let good = jj_current_operation_id(&repo)?;
+// If the stack is already divergent, don't rebase it — gate and surface. Both
+// versions are preserved in place; there is nothing to discard.
+if !jj_divergent_change_ids(&repo)?.is_empty() {
+    // ... report and retry later ...
+}
 
-// ... run mutations (fetch, rebase, push) ...
+// Capture the clean operation *after* fetch, before your rebase.
+let post_fetch = jj_current_operation_id(&repo)?;
 
-// A concurrent writer forced a reconcile if a "reconcile divergent operations"
-// op appeared, or divergent change ids now exist.
-let reconciled = jj_operation_log(&repo, 20)?
-    .iter()
-    .any(|op| op.description.contains("reconcile divergent operations"));
-if reconciled || !jj_divergent_change_ids(&repo)?.is_empty() {
-    // Roll back to the known-good operation, discarding jj's mangled auto-merge.
-    jj_op_restore(&repo, &good)?;
+// ... run your rebase/merge ...
+
+// If the rebase introduced divergence, it raced a concurrent reconcile. Undo
+// ONLY your own step — restore to the op you captured — never roll back past
+// the concurrent work; jj already preserved both sides.
+if !jj_divergent_change_ids(&repo)?.is_empty() {
+    jj_op_restore(&repo, &post_fetch)?;
 }
 ```
 
-For a repo that is *already* divergent (no known-good op held), walk back to the
-most recent clean operation and restore to that:
+Read the divergence signal **fail-safe**: an *error* reading it is usually lock
+contention from the very concurrent writer you're guarding against, so treat it
+as "can't verify — gate", never as "clean — proceed".
 
-```rust
-use vcs_runner::{jj_operation_log, jj_is_divergent_at_operation, jj_op_restore};
-
-if let Some(clean) = jj_operation_log(&repo, 20)?
-    .into_iter()
-    .find(|op| matches!(jj_is_divergent_at_operation(&repo, &op.id), Ok(false)))
-{
-    jj_op_restore(&repo, &clean.id)?;
-}
-```
-
-`jj_op_restore` is colocation-safe: in a colocated repo jj re-exports refs to
-git as part of the restore, so the git side (branch refs, `HEAD`) stays in
-lockstep with jj. Deciding *when* to snapshot and what counts as a good
-operation is application policy — this crate provides the primitives.
+`jj_op_restore` is colocation-safe: jj re-exports refs to git as part of the
+restore, so the git side (branch refs, `HEAD`) stays in lockstep with jj.
+`jj_operation_log` and `jj_is_divergent_at_operation` remain available for
+inspecting op history, but prefer `divergent()` as the corruption signal —
+matching operation *descriptions* is fragile and flags benign independent
+reconciles too. Deciding when to snapshot and what to restore to is application
+policy; this crate provides the primitives.
 
 ## Parsing jj output
 

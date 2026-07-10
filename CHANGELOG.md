@@ -4,6 +4,20 @@ All notable changes to vcs-runner are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-07-10
+
+### Features
+
+- **`run_jj_utf8_ignore_wc`** — run a `jj` command with `--ignore-working-copy` prepended, returning trimmed stdout. The working-copy-agnostic entry point for any operation that must not perturb the user's checkout: a read that shouldn't snapshot their in-progress edits, or a fetch/push that never needs the working copy. Added to the prelude.
+
+### Fixed
+
+- **Op-log and divergence reads are now working-copy-agnostic.** `jj_current_operation_id`, `jj_operation_log`, `jj_divergent_change_ids`, and `jj_is_divergent_at_operation` previously shelled out without `--ignore-working-copy`, so each snapshotted the working copy — creating a spurious snapshot operation (perturbing the very op log being read) and, worse, erroring "working copy is stale" during a concurrent op-log reconcile, i.e. exactly the situation these helpers exist to detect. They now read working-copy-agnostically. `jj_op_restore` is unchanged (it mutates and legitimately updates the working copy).
+
+### Documentation
+
+- Rewrote the operation-log guide to gate on `divergent()` (jj preserves both sides of a reconcile, so a divergent change is the only corruption signature) rather than string-matching operation descriptions, and to restore only to your own captured post-fetch op rather than rolling back past concurrent work.
+
 ## [0.14.0] - 2026-07-09
 
 ### Features

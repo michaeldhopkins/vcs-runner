@@ -28,8 +28,9 @@ pub use runner::{
     run_git_cancellable, run_git_utf8, run_git_utf8_cancellable, run_git_utf8_with_retry,
     run_git_utf8_with_retry_cancellable, run_git_utf8_with_timeout, run_git_with_retry,
     run_git_with_retry_cancellable, run_git_with_timeout, run_jj, run_jj_cancellable, run_jj_utf8,
-    run_jj_utf8_cancellable, run_jj_utf8_with_retry, run_jj_utf8_with_retry_cancellable,
-    run_jj_utf8_with_timeout, run_jj_with_retry, run_jj_with_retry_cancellable, run_jj_with_timeout,
+    run_jj_utf8_cancellable, run_jj_utf8_ignore_wc, run_jj_utf8_with_retry,
+    run_jj_utf8_with_retry_cancellable, run_jj_utf8_with_timeout, run_jj_with_retry,
+    run_jj_with_retry_cancellable, run_jj_with_timeout,
 };
 
 // Re-export procpilot's generic subprocess API so vcs-runner consumers have
@@ -68,9 +69,9 @@ pub mod prelude {
         run_git, run_git_cancellable, run_git_utf8, run_git_utf8_cancellable,
         run_git_utf8_with_retry, run_git_utf8_with_retry_cancellable, run_git_utf8_with_timeout,
         run_git_with_retry, run_git_with_retry_cancellable, run_git_with_timeout, run_jj,
-        run_jj_cancellable, run_jj_utf8, run_jj_utf8_cancellable, run_jj_utf8_with_retry,
-        run_jj_utf8_with_retry_cancellable, run_jj_utf8_with_timeout, run_jj_with_retry,
-        run_jj_with_retry_cancellable, run_jj_with_timeout,
+        run_jj_cancellable, run_jj_utf8, run_jj_utf8_cancellable, run_jj_utf8_ignore_wc,
+        run_jj_utf8_with_retry, run_jj_utf8_with_retry_cancellable, run_jj_utf8_with_timeout,
+        run_jj_with_retry, run_jj_with_retry_cancellable, run_jj_with_timeout,
     };
 }
 

@@ -31,6 +31,22 @@ pub fn run_jj_utf8(repo_path: &Path, args: &[&str]) -> Result<String, RunError> 
     Ok(out.stdout_lossy().trim().to_string())
 }
 
+/// Run a `jj` command **working-copy-agnostically** — with `--ignore-working-copy`
+/// prepended — returning lossy-decoded, trimmed stdout.
+///
+/// Use this for any operation that must not perturb the user's working copy: a
+/// read that should not snapshot their in-progress edits (and so should not
+/// create a spurious snapshot operation), or a fetch/push that never needs the
+/// working copy. It also stays readable when a concurrent writer has left the
+/// working copy stale — a plain [`run_jj_utf8`] errors "working copy is stale"
+/// in exactly that case, which is the moment op-log/divergence reads matter most.
+pub fn run_jj_utf8_ignore_wc(repo_path: &Path, args: &[&str]) -> Result<String, RunError> {
+    let mut full = Vec::with_capacity(args.len() + 1);
+    full.push("--ignore-working-copy");
+    full.extend_from_slice(args);
+    run_jj_utf8(repo_path, &full)
+}
+
 /// Run a `git` command, returning lossy-decoded, trimmed stdout as a `String`.
 pub fn run_git_utf8(repo_path: &Path, args: &[&str]) -> Result<String, RunError> {
     let out = run_git(repo_path, args)?;
@@ -275,7 +291,9 @@ pub fn jj_merge_base(
 /// operation logs mid-way.
 pub fn jj_current_operation_id(repo_path: &Path) -> Result<String, RunError> {
     // `id` renders the full operation id, which `op restore` accepts directly.
-    run_jj_utf8(repo_path, &["op", "log", "-n1", "--no-graph", "-T", "id"])
+    // Working-copy-agnostic: reading the op head must not snapshot the working
+    // copy (that would create the very op we're trying to record).
+    run_jj_utf8_ignore_wc(repo_path, &["op", "log", "-n1", "--no-graph", "-T", "id"])
 }
 
 /// The recent operation-log entries, newest first, up to `limit` (`0` = all).
@@ -293,7 +311,8 @@ pub fn jj_operation_log(
         // Insert `-n <limit>` right after the `log` subcommand.
         args.splice(2..2, ["-n", limit_str.as_str()]);
     }
-    let out = run_jj_utf8(repo_path, &args)?;
+    // Working-copy-agnostic: reading the op log must not snapshot the working copy.
+    let out = run_jj_utf8_ignore_wc(repo_path, &args)?;
     Ok(out
         .lines()
         .filter_map(|line| {
@@ -309,7 +328,9 @@ pub fn jj_operation_log(
 /// the persistent tell left by a concurrent op-log reconcile. Deduplicated: a
 /// change divergent across N commits is reported once. Empty means clean.
 pub fn jj_divergent_change_ids(repo_path: &Path) -> Result<Vec<String>, RunError> {
-    let out = run_jj_utf8(
+    // Working-copy-agnostic: a concurrent writer can leave the working copy stale,
+    // and this signal — which exists to detect exactly that — must stay readable.
+    let out = run_jj_utf8_ignore_wc(
         repo_path,
         &["log", "-r", "divergent()", "--no-graph", "-T", r#"change_id ++ "\n""#],
     )?;
@@ -324,7 +345,8 @@ pub fn jj_divergent_change_ids(repo_path: &Path) -> Result<Vec<String>, RunError
 /// divergence, to [`jj_op_restore`] to.
 pub fn jj_is_divergent_at_operation(repo_path: &Path, op_id: &str) -> Result<bool, RunError> {
     // `--at-operation` is a global flag and must precede the subcommand.
-    let out = run_jj_utf8(
+    // Working-copy-agnostic: reading a past operation's state must not snapshot.
+    let out = run_jj_utf8_ignore_wc(
         repo_path,
         &[
             "--at-operation", op_id,
@@ -662,6 +684,36 @@ mod tests {
         repo.force_divergence();
         // One forked change spans two commits but is one change id.
         assert_eq!(jj_divergent_change_ids(repo.path()).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn op_log_reads_do_not_snapshot_the_working_copy() {
+        if !jj_installed() {
+            return;
+        }
+        let repo = TestRepo::new(false);
+        repo.seed_two_commits();
+        let path = repo.path();
+        // An uncommitted edit sitting in the working copy.
+        std::fs::write(path.join("f.txt"), "a\nwip\n").unwrap();
+        let wc_commit = |repo: &TestRepo| {
+            String::from_utf8_lossy(
+                &repo
+                    .jj(&["--ignore-working-copy", "log", "-r", "@", "--no-graph", "-T", "commit_id"])
+                    .stdout,
+            )
+            .trim()
+            .to_string()
+        };
+        let before = wc_commit(&repo);
+
+        // These reads historically snapshotted `@` (folding the edit in and
+        // creating a spurious op); they must now leave the working copy untouched.
+        let _ = jj_current_operation_id(path).unwrap();
+        let _ = jj_operation_log(path, 5).unwrap();
+        let _ = jj_divergent_change_ids(path).unwrap();
+
+        assert_eq!(before, wc_commit(&repo), "op-log/divergence reads must not snapshot the working copy");
     }
 
     // --- colocation safety ---
