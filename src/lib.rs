@@ -24,7 +24,8 @@ pub use parse_jj::{
 };
 pub use runner::{
     git_merge_base, is_transient_error, jj_current_operation_id, jj_divergent_change_ids,
-    jj_is_divergent_at_operation, jj_merge_base, jj_op_restore, jj_operation_log, run_git,
+    jj_is_divergent_at_operation, jj_merge_base, jj_op_restore, jj_operation_log,
+    jj_revset_at_operation, jj_revset_history, run_git,
     run_git_cancellable, run_git_utf8, run_git_utf8_cancellable, run_git_utf8_with_retry,
     run_git_utf8_with_retry_cancellable, run_git_utf8_with_timeout, run_git_with_retry,
     run_git_with_retry_cancellable, run_git_with_timeout, run_jj, run_jj_cancellable, run_jj_utf8,
@@ -65,7 +66,8 @@ pub mod prelude {
     pub use crate::{
         VcsBackend, detect_vcs, git_available, git_merge_base, git_version, is_transient_error,
         jj_available, jj_current_operation_id, jj_divergent_change_ids,
-        jj_is_divergent_at_operation, jj_merge_base, jj_op_restore, jj_operation_log, jj_version,
+        jj_is_divergent_at_operation, jj_merge_base, jj_op_restore, jj_operation_log,
+        jj_revset_at_operation, jj_revset_history, jj_version,
         run_git, run_git_cancellable, run_git_utf8, run_git_utf8_cancellable,
         run_git_utf8_with_retry, run_git_utf8_with_retry_cancellable, run_git_utf8_with_timeout,
         run_git_with_retry, run_git_with_retry_cancellable, run_git_with_timeout, run_jj,

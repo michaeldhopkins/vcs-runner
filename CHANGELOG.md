@@ -4,6 +4,12 @@ All notable changes to vcs-runner are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-07-10
+
+### Features
+
+- **`jj_revset_history` / `jj_revset_at_operation`** — reconstruct what a revset resolved to over the operation log, the first-class replacement for scraping `op log --op-diff` prose (jj exposes no structured op-diff, so text-scraping is the alternative — and it is exactly the "op log is a safety net, not a tool" anti-pattern). `jj_revset_at_operation(repo, revset, op)` returns the commit ids a revset resolves to at one operation, wrapping it in `present(…)` so an operation older than the named ref yields an empty vec instead of erroring. `jj_revset_history(repo, revset, limit)` walks operations newest-first and returns the distinct commit ids the revset resolved to — jj's analog of `git reflog <ref>` — stopping at the first operation where the revset is absent, which bounds the walk to the ref's own lifetime (`limit`, `0` = none, is an extra cap for large logs). Both are working-copy-agnostic. Uses: working-copy / stranded-work recovery (`<ws>@` history), pre-rebase-head recovery (`main` history), and drift detection. The stop-at-absent bound suits ref-like revsets; for transiently-empty ones (`divergent()`, `conflicts()`) evaluate `jj_revset_at_operation` over an explicit op list. Both added to the prelude.
+
 ## [0.15.0] - 2026-07-10
 
 ### Features

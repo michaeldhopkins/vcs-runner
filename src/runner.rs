@@ -356,6 +356,73 @@ pub fn jj_is_divergent_at_operation(repo_path: &Path, op_id: &str) -> Result<boo
     Ok(out.lines().any(|l| !l.is_empty()))
 }
 
+/// The commit ids `revset` resolves to **as of a specific operation** — `<ws>@`
+/// at op X, `main` at op X, or any revset. The building block for reconstructing
+/// a ref's history from the operation log without parsing `op log --op-diff`
+/// prose (jj exposes no structured op-diff, so text-scraping is the alternative,
+/// and it is exactly the "op log is a safety net, not a tool" anti-pattern).
+///
+/// The revset is wrapped in `present(…)`, so an operation older than the thing
+/// it names — before a workspace or bookmark existed — resolves to an empty vec
+/// rather than erroring, letting a caller distinguish "absent here" from a real
+/// failure. Working-copy-agnostic: inspecting a past operation must not snapshot.
+pub fn jj_revset_at_operation(
+    repo_path: &Path,
+    revset: &str,
+    op_id: &str,
+) -> Result<Vec<String>, RunError> {
+    // `--at-operation` is a global flag and must precede the subcommand.
+    let wrapped = format!("present({revset})");
+    let out = run_jj_utf8_ignore_wc(
+        repo_path,
+        &[
+            "--at-operation", op_id,
+            "log", "-r", &wrapped, "--no-graph", "-T", r#"commit_id ++ "\n""#,
+        ],
+    )?;
+    Ok(out.lines().filter(|l| !l.is_empty()).map(str::to_string).collect())
+}
+
+/// The distinct commit ids `revset` resolved to across the operation log, newest
+/// first — jj's analog of `git reflog <ref>`, for any revset. The first-class
+/// replacement for scraping `op log --op-diff` to answer "what did this ever
+/// point at" (working-copy recovery, pre-rebase-head recovery, drift detection).
+///
+/// Walks operations newest-first (via [`jj_operation_log`]) and evaluates
+/// [`jj_revset_at_operation`] at each, collecting distinct commit ids in the
+/// order first seen. The walk **stops at the first operation where `revset`
+/// resolves to nothing** — i.e. before the named ref existed — bounding it to
+/// the ref's own lifetime rather than the entire op log; `limit` (`0` = no cap)
+/// caps how many operations are examined as an extra guard on large logs.
+///
+/// That stop-at-absent bound suits *ref-like* revsets that come into being and
+/// persist (`<ws>@`, a bookmark). For a revset that is *transiently* empty —
+/// `divergent()`, `conflicts()` — it would end the walk immediately; evaluate
+/// [`jj_revset_at_operation`] over an explicit op list from [`jj_operation_log`]
+/// instead. Working-copy-agnostic. Cost is one `jj` invocation per operation
+/// walked: jj offers no batched or structured op-diff, so this is inherent.
+pub fn jj_revset_history(
+    repo_path: &Path,
+    revset: &str,
+    limit: usize,
+) -> Result<Vec<String>, RunError> {
+    let ops = jj_operation_log(repo_path, limit)?;
+    let mut seen = std::collections::HashSet::new();
+    let mut history = Vec::new();
+    for op in &ops {
+        let at = jj_revset_at_operation(repo_path, revset, &op.id)?;
+        if at.is_empty() {
+            break; // older than the ref — nothing more of its lifetime to find
+        }
+        for cid in at {
+            if seen.insert(cid.clone()) {
+                history.push(cid);
+            }
+        }
+    }
+    Ok(history)
+}
+
 /// Roll the repo back to `op_id` (`jj op restore`). The recovery primitive:
 /// pick a known-good operation instead of keeping jj's mangled auto-merge.
 ///
@@ -714,6 +781,72 @@ mod tests {
         let _ = jj_divergent_change_ids(path).unwrap();
 
         assert_eq!(before, wc_commit(&repo), "op-log/divergence reads must not snapshot the working copy");
+    }
+
+    #[test]
+    fn revset_at_operation_wraps_absence_and_stays_wc_agnostic() {
+        if !jj_installed() {
+            return;
+        }
+        let repo = TestRepo::new(false);
+        repo.seed_two_commits();
+        let path = repo.path();
+
+        // Before any `hist` bookmark exists, `present(hist)` resolves empty — not
+        // an error — so a caller can tell "absent at this op" from a real failure.
+        let before = jj_current_operation_id(path).unwrap();
+        assert!(
+            jj_revset_at_operation(path, "hist", &before).unwrap().is_empty(),
+            "a ref absent at an operation resolves to empty, not an error"
+        );
+
+        // And the read must not snapshot an uncommitted edit into `@`.
+        std::fs::write(path.join("f.txt"), "a\nwip\n").unwrap();
+        let wc = || {
+            String::from_utf8_lossy(
+                &repo
+                    .jj(&["--ignore-working-copy", "log", "-r", "@", "--no-graph", "-T", "commit_id"])
+                    .stdout,
+            )
+            .trim()
+            .to_string()
+        };
+        let wc_before = wc();
+        let _ = jj_revset_at_operation(path, "@", &before).unwrap();
+        assert_eq!(wc_before, wc(), "reading a revset at an operation must not snapshot the working copy");
+    }
+
+    #[test]
+    fn revset_history_reflogs_a_bookmarks_moves_and_bounds_at_creation() {
+        if !jj_installed() {
+            return;
+        }
+        let repo = TestRepo::new(false);
+        repo.seed_two_commits();
+        let path = repo.path();
+        let commit = |rev: &str| {
+            String::from_utf8_lossy(
+                &repo
+                    .jj(&["--ignore-working-copy", "log", "-r", rev, "--no-graph", "-T", "commit_id", "--limit", "1"])
+                    .stdout,
+            )
+            .trim()
+            .to_string()
+        };
+        let a = commit("@-"); // commit A
+        let b = commit("@"); // working-copy commit B
+
+        // Point a bookmark at A, then move it to B: two distinct values in its life.
+        repo.jj(&["bookmark", "create", "hist", "-r", &a]);
+        repo.jj(&["bookmark", "set", "hist", "-r", &b]);
+
+        // Newest-first, distinct, and bounded at the bookmark's creation — the walk
+        // stops before `hist` existed rather than scanning the whole op log.
+        assert_eq!(
+            jj_revset_history(path, "hist", 0).unwrap(),
+            vec![b.clone(), a.clone()],
+            "reflog-order history of the moving bookmark"
+        );
     }
 
     // --- colocation safety ---
