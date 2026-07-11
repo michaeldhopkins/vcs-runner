@@ -12,6 +12,7 @@ mod parse_git;
 mod parse_jj;
 mod runner;
 mod types;
+mod worktree;
 
 pub use detect::{VcsBackend, detect_vcs};
 pub use error::RunError;
@@ -41,6 +42,8 @@ pub use procpilot::{
     STREAM_SUFFIX_SIZE, SpawnedProcess, StdinData, binary_available, binary_version,
     default_transient,
 };
+
+pub use worktree::{read_working_file, read_working_file_bytes, working_file_is_binary};
 
 pub use types::JjOperation;
 #[cfg(any(feature = "jj-parse", feature = "git-parse"))]
@@ -74,6 +77,7 @@ pub mod prelude {
         run_jj_cancellable, run_jj_utf8, run_jj_utf8_cancellable, run_jj_utf8_ignore_wc,
         run_jj_utf8_with_retry, run_jj_utf8_with_retry_cancellable, run_jj_utf8_with_timeout,
         run_jj_with_retry, run_jj_with_retry_cancellable, run_jj_with_timeout,
+        read_working_file, read_working_file_bytes, working_file_is_binary,
     };
 }
 
