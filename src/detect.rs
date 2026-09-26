@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Which version control system is managing a directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -27,7 +27,14 @@ impl VcsBackend {
 ///
 /// Checks the path itself, then walks up ancestors. Returns the backend
 /// type and the repo root path.
+///
+/// A relative path is taken from the working directory, and the walk goes on above
+/// it. A path containing `..` is resolved through the filesystem first (so the root
+/// comes back canonical), and one the filesystem cannot resolve, such as
+/// `missing/..`, is an error.
 pub fn detect_vcs(path: &Path) -> anyhow::Result<(VcsBackend, PathBuf)> {
+    let cwd = if path.is_relative() { Some(std::env::current_dir()?) } else { None };
+    let path = resolve(path, cwd.as_deref())?;
     for dir in path.ancestors() {
         let has_jj = dir.join(".jj").is_dir();
         let has_git = dir.join(".git").exists();
@@ -40,6 +47,28 @@ pub fn detect_vcs(path: &Path) -> anyhow::Result<(VcsBackend, PathBuf)> {
         }
     }
     anyhow::bail!("not a git or jj repository")
+}
+
+/// Where `path` really is, in a form whose lexical ancestors are its real ones.
+///
+/// `Path::ancestors` only strips components, so walking `sub/../other` visits `sub`,
+/// which `other` is not inside, and walking a relative path stops at the working
+/// directory. So the path is made absolute against `cwd`, and everything up to its
+/// last `..` is canonicalized; what follows has no `..` and may not exist yet.
+fn resolve(path: &Path, cwd: Option<&Path>) -> anyhow::Result<PathBuf> {
+    let absolute = match cwd {
+        Some(cwd) if path.is_relative() => cwd.join(path),
+        _ => path.to_path_buf(),
+    };
+    let components: Vec<Component> = absolute.components().collect();
+    let Some(last_up) = components.iter().rposition(|c| matches!(c, Component::ParentDir)) else {
+        return Ok(components.iter().collect());
+    };
+    let head: PathBuf = components[..=last_up].iter().collect();
+    let head = head
+        .canonicalize()
+        .map_err(|e| anyhow::anyhow!("cannot resolve {}: {e}", head.display()))?;
+    Ok(components[last_up + 1..].iter().fold(head, |p, c| p.join(c)))
 }
 
 #[cfg(test)]
@@ -95,6 +124,43 @@ mod tests {
         let (backend, root) = detect_vcs(&child).expect("should detect");
         assert_eq!(backend, VcsBackend::Jj);
         assert_eq!(root, tmp.path());
+    }
+
+    // The next three were found by the detect_root fuzz target. `Path::ancestors` is
+    // lexical, so an ancestor walk over an unresolved path visits directories the path
+    // is not inside.
+
+    #[test]
+    fn detect_through_dotdot_does_not_credit_the_dir_it_left() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let sub = tmp.path().join("sub");
+        fs::create_dir_all(sub.join(".jj")).expect("mkdir sub/.jj");
+        fs::create_dir(tmp.path().join("other")).expect("mkdir other");
+        // `sub/../other` is `other`, which is not inside `sub`.
+        if let Ok((_, root)) = detect_vcs(&sub.join("..").join("other")) {
+            assert!(!root.starts_with(&sub), "credited {} to a path outside it", root.display());
+        }
+    }
+
+    #[test]
+    fn detect_through_dotdot_finds_the_real_parent() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        fs::create_dir(tmp.path().join(".git")).expect("mkdir .git");
+        let sub = tmp.path().join("sub");
+        fs::create_dir_all(sub.join(".jj")).expect("mkdir sub/.jj");
+        let (backend, root) = detect_vcs(&sub.join("..")).expect("should detect");
+        assert_eq!(backend, VcsBackend::Git);
+        assert_eq!(root, tmp.path().canonicalize().expect("canonical"));
+        assert!(detect_vcs(&sub.join("missing").join("..")).is_err(), "unresolvable, as for the OS");
+    }
+
+    #[test]
+    fn a_relative_path_is_resolved_against_the_working_directory() {
+        let cwd = Path::new("/repo/sub");
+        assert_eq!(resolve(Path::new(""), Some(cwd)).expect("resolves"), PathBuf::from("/repo/sub"));
+        assert_eq!(resolve(Path::new("."), Some(cwd)).expect("resolves"), PathBuf::from("/repo/sub"));
+        assert_eq!(resolve(Path::new("a/./b"), Some(cwd)).expect("resolves"), PathBuf::from("/repo/sub/a/b"));
+        assert_eq!(resolve(Path::new("/abs"), Some(cwd)).expect("resolves"), PathBuf::from("/abs"));
     }
 
     #[test]
