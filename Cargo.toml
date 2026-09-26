@@ -40,6 +40,11 @@ serde_json = { version = "1", optional = true }
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# syn + proc-macro2: tests/file_length.rs parses the crate's own source to leave tests out of
+# each file's count; a text scan is fooled by strings and comments. `span-locations` gives it
+# exact line spans.
+proc-macro2 = { version = "1", features = ["span-locations"] }
+syn = { version = "2", features = ["full", "visit"] }
 
 [lints.clippy]
 struct-excessive-bools = "deny"

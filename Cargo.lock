@@ -352,9 +352,11 @@ name = "vcs-runner"
 version = "0.17.0"
 dependencies = [
  "anyhow",
+ "proc-macro2",
  "procpilot",
  "serde",
  "serde_json",
+ "syn",
  "tempfile",
 ]
 
