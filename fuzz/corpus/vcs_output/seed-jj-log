@@ -1,0 +1,2 @@
+{"commitId":"abc123","changeId":"xyz789","authorName":"Alice","authorEmail":"alice@example.com","description":"Add feature\n\nDetailed","parents":["def456"],"localBookmarks":["feature"],"remoteBookmarks":["feature@origin"],"isWorkingCopy":"true","conflict":"false","empty":"false"}
+{"commitId":"def456","changeId":"uvw000","authorName":"","authorEmail":"","description":"","parents":[""],"localBookmarks":[],"remoteBookmarks":[],"isWorkingCopy":"false","conflict":"true","empty":"true"}

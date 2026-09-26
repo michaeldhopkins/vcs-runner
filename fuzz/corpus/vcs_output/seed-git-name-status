@@ -1,0 +1,5 @@
+M	src/lib.rs
+A	"\303\251.rs"
+R100	old.rs	new.rs
+C75	"tab\there"	to.rs
+D	trail 

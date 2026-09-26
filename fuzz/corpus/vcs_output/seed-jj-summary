@@ -1,0 +1,9 @@
+A a -> b
+M trail 
+R src/{a.rs => b.rs}
+R d/e/{ => deeper}/p.rs
+R {d => g}/e/x.rs
+R {d/k.rs => k.rs}
+R g/{e => }/x.rs
+C {br{ace} => x.rs => q r.rs}
+D gone.rs

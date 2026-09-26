@@ -6,6 +6,9 @@
 
 mod detect;
 mod error;
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub mod fuzz_api;
 #[cfg(feature = "git-parse")]
 mod parse_git;
 #[cfg(feature = "jj-parse")]
