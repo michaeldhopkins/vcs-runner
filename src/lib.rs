@@ -10,6 +10,7 @@ mod error;
 mod parse_git;
 #[cfg(feature = "jj-parse")]
 mod parse_jj;
+mod parse_op;
 mod runner;
 mod types;
 mod worktree;

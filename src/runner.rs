@@ -12,6 +12,8 @@ use std::time::Duration;
 
 use procpilot::{Cmd, RetryPolicy, RunError, RunOutput};
 
+use crate::parse_op::{parse_id_lines, parse_operation_log};
+
 /// Run a `jj` command in a repo directory, returning captured output.
 pub fn run_jj(repo_path: &Path, args: &[&str]) -> Result<RunOutput, RunError> {
     Cmd::new("jj").in_dir(repo_path).args(args).run()
@@ -313,15 +315,7 @@ pub fn jj_operation_log(
     }
     // Working-copy-agnostic: reading the op log must not snapshot the working copy.
     let out = run_jj_utf8_ignore_wc(repo_path, &args)?;
-    Ok(out
-        .lines()
-        .filter_map(|line| {
-            line.split_once('\t').map(|(id, desc)| crate::JjOperation {
-                id: id.to_string(),
-                description: desc.to_string(),
-            })
-        })
-        .collect())
+    Ok(parse_operation_log(&out))
 }
 
 /// Change ids that are divergent (one change id on multiple visible commits) —
@@ -334,7 +328,7 @@ pub fn jj_divergent_change_ids(repo_path: &Path) -> Result<Vec<String>, RunError
         repo_path,
         &["log", "-r", "divergent()", "--no-graph", "-T", r#"change_id ++ "\n""#],
     )?;
-    let mut ids: Vec<String> = out.lines().filter(|l| !l.is_empty()).map(str::to_string).collect();
+    let mut ids = parse_id_lines(&out);
     ids.sort();
     ids.dedup();
     Ok(ids)
@@ -353,7 +347,7 @@ pub fn jj_is_divergent_at_operation(repo_path: &Path, op_id: &str) -> Result<boo
             "log", "-r", "divergent()", "--no-graph", "-T", r#"change_id ++ "\n""#,
         ],
     )?;
-    Ok(out.lines().any(|l| !l.is_empty()))
+    Ok(!parse_id_lines(&out).is_empty())
 }
 
 /// The commit ids `revset` resolves to **as of a specific operation** — `<ws>@`
@@ -380,7 +374,7 @@ pub fn jj_revset_at_operation(
             "log", "-r", &wrapped, "--no-graph", "-T", r#"commit_id ++ "\n""#,
         ],
     )?;
-    Ok(out.lines().filter(|l| !l.is_empty()).map(str::to_string).collect())
+    Ok(parse_id_lines(&out))
 }
 
 /// The distinct commit ids `revset` resolved to across the operation log, newest
