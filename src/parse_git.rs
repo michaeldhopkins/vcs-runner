@@ -10,12 +10,15 @@ use crate::types::{FileChange, FileChangeKind};
 /// The leading status letter may be followed by a similarity score
 /// (e.g. `R100`, `C75`); the score is recognized but not retained.
 ///
+/// A path git quoted (with the default `core.quotePath`, any path holding a
+/// control character, `"`, `\` or a non-ASCII byte: `"\303\251.rs"`) is unquoted.
+///
 /// Unknown status letters are skipped. Blank lines are skipped.
 pub fn parse_git_diff_name_status(output: &str) -> Vec<FileChange> {
     let mut changes = Vec::new();
     for line in output.lines() {
-        let line = line.trim_end();
-        if line.is_empty() {
+        // Not trimmed: a path may end in whitespace, and `lines()` already drops `\r\n`.
+        if line.trim().is_empty() {
             continue;
         }
 
@@ -38,21 +41,77 @@ pub fn parse_git_diff_name_status(output: &str) -> Vec<FileChange> {
                 };
                 changes.push(FileChange {
                     kind,
-                    path: PathBuf::from(to),
-                    from_path: Some(PathBuf::from(from)),
+                    path: git_path(to),
+                    from_path: Some(git_path(from)),
                 });
             }
             _ => {
                 let Some(path) = parts.next() else { continue };
                 changes.push(FileChange {
                     kind,
-                    path: PathBuf::from(path),
+                    path: git_path(path),
                     from_path: None,
                 });
             }
         }
     }
     changes
+}
+
+/// A path field as git printed it: unquoted if git quoted it, else as is. git always
+/// quotes a path containing `"`, so a field that starts with one was quoted. One that
+/// does not unquote cleanly is kept as printed rather than dropped.
+fn git_path(field: &str) -> PathBuf {
+    match c_unquote(field) {
+        Some(bytes) => path_from_bytes(bytes),
+        None => PathBuf::from(field),
+    }
+}
+
+/// Undo git's C-style quoting (`quote.c`): named escapes plus three-digit octal bytes.
+fn c_unquote(field: &str) -> Option<Vec<u8>> {
+    let inner = field.strip_prefix('"')?.strip_suffix('"')?.as_bytes();
+    let mut out = Vec::with_capacity(inner.len());
+    let mut i = 0;
+    while i < inner.len() {
+        if inner[i] != b'\\' {
+            out.push(inner[i]);
+            i += 1;
+            continue;
+        }
+        let escaped = *inner.get(i + 1)?;
+        let byte = match escaped {
+            b'a' => 0x07,
+            b'b' => 0x08,
+            b't' => b'\t',
+            b'n' => b'\n',
+            b'v' => 0x0b,
+            b'f' => 0x0c,
+            b'r' => b'\r',
+            b'"' | b'\\' => escaped,
+            b'0'..=b'3' => {
+                let digits = std::str::from_utf8(inner.get(i + 1..i + 4)?).ok()?;
+                out.push(u8::from_str_radix(digits, 8).ok()?);
+                i += 4;
+                continue;
+            }
+            _ => return None,
+        };
+        out.push(byte);
+        i += 2;
+    }
+    Some(out)
+}
+
+#[cfg(unix)]
+fn path_from_bytes(bytes: Vec<u8>) -> PathBuf {
+    use std::os::unix::ffi::OsStringExt;
+    PathBuf::from(std::ffi::OsString::from_vec(bytes))
+}
+
+#[cfg(not(unix))]
+fn path_from_bytes(bytes: Vec<u8>) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[cfg(test)]
@@ -127,6 +186,41 @@ mod tests {
     fn rename_without_second_path_skipped() {
         let changes = parse_git_diff_name_status("R100\tjust_one.rs");
         assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn quoted_paths_are_unquoted() {
+        // git's default core.quotePath: found by the diff_summary_roundtrip fuzz target.
+        let changes = parse_git_diff_name_status("A\t\"\\303\\251.rs\"\nC75\t\"tab\\there\"\t\"q\\\"\\\\\\n\"");
+        assert_eq!(changes[0].path, PathBuf::from("é.rs"));
+        assert_eq!(changes[1].from_path, Some(PathBuf::from("tab\there")));
+        assert_eq!(changes[1].path, PathBuf::from("q\"\\\n"));
+    }
+
+    #[test]
+    fn every_named_escape_and_the_octal_bounds_unquote() {
+        let changes = parse_git_diff_name_status("M\t\"\\a\\b\\v\\f\\r\\000\\177\\377\"");
+        let want: &[u8] = &[0x07, 0x08, 0x0b, 0x0c, b'\r', 0x00, 0x7f, 0xff];
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            assert_eq!(changes[0].path.as_os_str().as_bytes(), want);
+        }
+        #[cfg(not(unix))]
+        assert_eq!(changes[0].path, PathBuf::from(String::from_utf8_lossy(want).into_owned()));
+    }
+
+    #[test]
+    fn a_malformed_quoted_path_is_kept_as_printed() {
+        let changes = parse_git_diff_name_status("M\t\"bad\\q\"\nM\t\"\\30\"\nM\t\"");
+        assert_eq!(changes[0].path, PathBuf::from("\"bad\\q\""));
+        assert_eq!(changes[1].path, PathBuf::from("\"\\30\""));
+        assert_eq!(changes[2].path, PathBuf::from("\""));
+    }
+
+    #[test]
+    fn trailing_whitespace_in_a_path_is_kept() {
+        assert_eq!(parse_git_diff_name_status("M\ttrail \n")[0].path, PathBuf::from("trail "));
     }
 
     #[test]
