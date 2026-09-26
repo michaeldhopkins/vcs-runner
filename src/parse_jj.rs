@@ -85,9 +85,13 @@ struct RawLogEntry {
 
 fn extract_name_from_malformed_json(line: &str) -> Option<String> {
     let after_key = line.split(r#""name":"#).nth(1)?;
-    let after_quote = after_key.strip_prefix('"')?;
-    let end = after_quote.find('"')?;
-    Some(after_quote[..end].to_string())
+    // The name is a whole JSON string even when what follows it is not JSON, so decode
+    // just that one value: escape_json() escapes quotes, backslashes and control
+    // characters, which slicing between quotes would get wrong.
+    serde_json::Deserializer::from_str(after_key)
+        .into_iter::<String>()
+        .next()?
+        .ok()
 }
 
 fn resolve_remote_status(name: &str, remote_bookmarks: &[String]) -> RemoteStatus {
@@ -100,9 +104,12 @@ fn resolve_remote_status(name: &str, remote_bookmarks: &[String]) -> RemoteStatu
         return RemoteStatus::Local;
     }
 
+    // A remote bookmark renders as `name@remote`. Bookmark names may contain `@`
+    // (`feat@v2`), remote names in practice do not, so the owner is everything before
+    // the last `@`; a prefix match would credit `feat@v2@origin` to `feat`.
     let synced = non_git_remotes
         .iter()
-        .any(|rb| rb.starts_with(&format!("{name}@")));
+        .any(|rb| rb.rsplit_once('@').is_some_and(|(owner, _)| owner == name));
 
     if synced { RemoteStatus::Synced } else { RemoteStatus::Unsynced }
 }
@@ -229,6 +236,38 @@ pub fn parse_remote_list(output: &str) -> Vec<GitRemote> {
         .collect()
 }
 
+/// The two paths of a rename or copy in `jj diff --summary`.
+fn split_rename(rest: &str) -> Option<(String, String)> {
+    expand_brace_rename(rest).or_else(|| {
+        rest.split_once(" -> ").map(|(from, to)| (from.to_string(), to.to_string()))
+    })
+}
+
+/// `prefix/{old => new}/suffix`, where the braces open at the start or after a `/` and
+/// close at the end or before one. Either side of ` => ` may be empty, as in
+/// `g/{e => }/x.rs`, and then the slashes around it collapse to one.
+fn expand_brace_rename(s: &str) -> Option<(String, String)> {
+    let open = s
+        .char_indices()
+        .find(|&(i, c)| c == '{' && (i == 0 || s[..i].ends_with('/')))?
+        .0;
+    let (prefix, tail) = (&s[..open], &s[open + 1..]);
+    let close = tail
+        .char_indices()
+        .rev()
+        .find(|&(i, c)| c == '}' && (i + 1 == tail.len() || tail[i + 1..].starts_with('/')))?
+        .0;
+    let (inner, suffix) = (&tail[..close], &tail[close + 1..]);
+    let (old, new) = inner.split_once(" => ")?;
+    Some((join_rename_side(prefix, old, suffix), join_rename_side(prefix, new, suffix)))
+}
+
+fn join_rename_side(prefix: &str, middle: &str, suffix: &str) -> String {
+    let prefix = prefix.strip_suffix('/').unwrap_or(prefix);
+    let suffix = suffix.strip_prefix('/').unwrap_or(suffix);
+    [prefix, middle, suffix].iter().filter(|p| !p.is_empty()).copied().collect::<Vec<_>>().join("/")
+}
+
 /// Parse `jj diff --summary` output into structured [`FileChange`] values.
 ///
 /// jj produces lines like:
@@ -236,16 +275,22 @@ pub fn parse_remote_list(output: &str) -> Vec<GitRemote> {
 /// M path/to/file.rs
 /// A new_file.rs
 /// D removed.rs
+/// R src/{old.rs => new.rs}
+/// C {from.rs => to.rs}
 /// R old/path.rs -> new/path.rs
-/// C from.rs -> to.rs
 /// ```
+///
+/// A rename or copy is jj's brace form, in which the path components the two sides
+/// share are written once outside the braces (`R {d => g}/e/x.rs` is `d/e/x.rs` to
+/// `g/e/x.rs`), or the older `old -> new`. jj does not quote paths, so a path that
+/// itself contains `{`, `}` or ` => ` makes a rename line ambiguous.
 ///
 /// Unknown status letters are skipped. Blank lines are skipped.
 pub fn parse_diff_summary(output: &str) -> Vec<FileChange> {
     let mut changes = Vec::new();
     for line in output.lines() {
-        let line = line.trim_end();
-        if line.is_empty() {
+        // Not trimmed: a path may end in whitespace, and `lines()` already drops `\r\n`.
+        if line.trim().is_empty() {
             continue;
         }
         let Some((kind_str, rest)) = line.split_once(' ') else {
@@ -262,7 +307,7 @@ pub fn parse_diff_summary(output: &str) -> Vec<FileChange> {
 
         match kind {
             FileChangeKind::Renamed | FileChangeKind::Copied => {
-                if let Some((from, to)) = rest.split_once(" -> ") {
+                if let Some((from, to)) = split_rename(rest) {
                     changes.push(FileChange {
                         kind,
                         path: PathBuf::from(to),
@@ -308,6 +353,14 @@ mod tests {
     }
 
     #[test]
+    fn extract_name_decodes_json_escapes() {
+        // Found by the bookmark_roundtrip fuzz target: jj's escape_json() escapes the
+        // name, so a stale bookmark's name must be decoded, not sliced between quotes.
+        let line = r#"{"name":"a\"b\\c\u0005","commitId":<Error: No Commit available>}"#;
+        assert_eq!(extract_name_from_malformed_json(line), Some("a\"b\\c\u{5}".to_string()));
+    }
+
+    #[test]
     fn extract_name_with_slash() {
         let line = r#"{"name":"feat/deep/nested","commitId":"abc"}"#;
         assert_eq!(extract_name_from_malformed_json(line), Some("feat/deep/nested".to_string()));
@@ -344,6 +397,15 @@ mod tests {
     #[test]
     fn remote_status_unsynced() {
         assert_eq!(resolve_remote_status("feat", &["other@origin".into()]), RemoteStatus::Unsynced);
+    }
+
+    #[test]
+    fn remote_status_reads_the_owner_before_the_last_at() {
+        // Found by the bookmark_roundtrip fuzz target: `feat@v2` is a legal bookmark
+        // name, and its remote bookmark `feat@v2@origin` is not `feat`'s.
+        assert_eq!(resolve_remote_status("feat", &["feat@v2@origin".into()]), RemoteStatus::Unsynced);
+        assert_eq!(resolve_remote_status("feat@v2", &["feat@v2@origin".into()]), RemoteStatus::Synced);
+        assert_eq!(resolve_remote_status("", &["@x@origin".into()]), RemoteStatus::Unsynced);
     }
 
     #[test]
@@ -605,6 +667,44 @@ mod tests {
     fn diff_summary_path_with_spaces() {
         let changes = parse_diff_summary("M path with spaces.rs");
         assert_eq!(changes[0].path, PathBuf::from("path with spaces.rs"));
+    }
+
+    fn pair_of(line: &str) -> (PathBuf, PathBuf) {
+        let changes = parse_diff_summary(line);
+        assert_eq!(changes.len(), 1, "{line}");
+        (changes[0].from_path.clone().expect("a rename has a source"), changes[0].path.clone())
+    }
+
+    #[test]
+    fn diff_summary_reads_jjs_brace_renames() {
+        // Captured from `jj diff --summary` (jj 0.45); found by the
+        // diff_summary_roundtrip fuzz target, which renders this form. Before, every
+        // one of these was silently dropped.
+        let cases = [
+            ("R src/{a.rs => b.rs}", "src/a.rs", "src/b.rs"),
+            ("R {d => g}/e/x.rs", "d/e/x.rs", "g/e/x.rs"),
+            ("R {d/k.rs => k.rs}", "d/k.rs", "k.rs"),
+            ("R {top.rs => moved.rs}", "top.rs", "moved.rs"),
+            ("R d/e/{ => deeper}/p.rs", "d/e/p.rs", "d/e/deeper/p.rs"),
+            ("R g/{e => }/x.rs", "g/e/x.rs", "g/x.rs"),
+            ("C {f => f2}", "f", "f2"),
+        ];
+        for (line, from, to) in cases {
+            assert_eq!(pair_of(line), (PathBuf::from(from), PathBuf::from(to)), "{line}");
+        }
+        assert_eq!(parse_diff_summary("C {f => f2}")[0].kind, FileChangeKind::Copied);
+    }
+
+    #[test]
+    fn diff_summary_keeps_trailing_whitespace_in_a_path() {
+        // `jj diff --summary` prints `M trail ` for a file named "trail ".
+        assert_eq!(parse_diff_summary("M trail ")[0].path, PathBuf::from("trail "));
+        assert_eq!(pair_of("R {a => b }"), (PathBuf::from("a"), PathBuf::from("b ")));
+    }
+
+    #[test]
+    fn diff_summary_braces_in_a_modified_path_are_literal() {
+        assert_eq!(parse_diff_summary("M {a => b}")[0].path, PathBuf::from("{a => b}"));
     }
 
     #[test]
