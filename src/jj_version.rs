@@ -73,6 +73,15 @@ mod tests {
         assert_eq!(parse_jj_version("jj 0.x.1"), None);
     }
 
+    // Returning None would go unnoticed elsewhere: the pre-0.38 query works on every
+    // version, only slower.
+    #[test]
+    fn installed_version_is_the_one_jj_reports() {
+        let Some(reported) = procpilot::binary_version("jj") else { return };
+        assert_eq!(installed_jj_version(), parse_jj_version(&reported));
+        assert!(installed_jj_version().is_some(), "unrecognised: {reported}");
+    }
+
     #[test]
     fn divergent_query_uses_the_revset_from_0_38() {
         assert_eq!(divergent_change_id_query(Some(v(0, 38, 0)))[1], "divergent()");
