@@ -1,0 +1,10 @@
+R d/e/{ => deeper}/p.rs
+R {d => g}/e/x.rs
+R {d/k.rs => k.rs}
+M keep.rs
+R {top.rs => moved.rs}
+A new file.rs
+R {sp ace.rs => sp ace 2.rs}
+R src/{a.rs => b.rs}
+M trail 
+R {é.rs => ü.rs}

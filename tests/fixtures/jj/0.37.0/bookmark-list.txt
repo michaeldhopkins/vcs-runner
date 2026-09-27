@@ -1,0 +1,8 @@
+{"name":"conflicted","remote":null,"commitId":<Error: No Commit available>,"changeId":<Error: No Commit available>,"localBookmarks":[<Error: No Commit available>],"remoteRefs":[<Error: No Commit available>]}
+{"name":"conflicted","remote":"git","commitId":"e2577e5fcf76","changeId":"vkumrkxprxkl","localBookmarks":["conflicted","feature"],"remoteRefs":[["conflicted","git"],["feature","git"]]}
+{"name":"feat@v2","remote":null,"commitId":<Error: No Commit available>,"changeId":<Error: No Commit available>,"localBookmarks":[<Error: No Commit available>],"remoteRefs":[<Error: No Commit available>]}
+{"name":"feat@v2","remote":"origin","commitId":"2a0dd2689430","changeId":"ltkqpqzmqzmz","localBookmarks":["local-only","synced"],"remoteRefs":[["feat@v2","origin"],["feature","origin"],["local-only","git"],["synced","git"],["synced","origin"]]}
+{"name":"feature","remote":null,"commitId":"e2577e5fcf76","changeId":"vkumrkxprxkl","localBookmarks":["conflicted","feature"],"remoteRefs":[["conflicted","git"],["feature","git"]]}
+{"name":"feature","remote":"origin","commitId":"2a0dd2689430","changeId":"ltkqpqzmqzmz","localBookmarks":["local-only","synced"],"remoteRefs":[["feat@v2","origin"],["feature","origin"],["local-only","git"],["synced","git"],["synced","origin"]]}
+{"name":"local-only","remote":null,"commitId":"2a0dd2689430","changeId":"ltkqpqzmqzmz","localBookmarks":["local-only","synced"],"remoteRefs":[["feat@v2","origin"],["feature","origin"],["local-only","git"],["synced","git"],["synced","origin"]]}
+{"name":"synced","remote":null,"commitId":"2a0dd2689430","changeId":"ltkqpqzmqzmz","localBookmarks":["local-only","synced"],"remoteRefs":[["feat@v2","origin"],["feature","origin"],["local-only","git"],["synced","git"],["synced","origin"]]}

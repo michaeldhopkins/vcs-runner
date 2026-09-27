@@ -48,3 +48,37 @@ jobs:
 
       - name: cargo deny check licenses
         run: cargo deny check licenses
+
+  # vcs-runner supports jj 0.33 and later (AGENTS.md "Supported jj versions"). Every
+  # test that shells out to jj runs against the oldest supported release, the ones where
+  # a spelling changed, and the newest captured, so a jj-version regression names the
+  # version. The parsers' per-version fixtures (src/jj_compat_tests.rs) run in `ci`.
+  jj-versions:
+    name: Test with jj ${{ matrix.jj }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        jj: ["0.33.0", "0.36.0", "0.37.0", "0.38.0", "0.40.0", "0.45.1"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install jj ${{ matrix.jj }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/jj"
+          gh release download "v${{ matrix.jj }}" -R jj-vcs/jj \
+            -p "jj-v${{ matrix.jj }}-x86_64-unknown-linux-musl.tar.gz" -O - \
+            | tar -xz -C "$RUNNER_TEMP/jj"
+          echo "$RUNNER_TEMP/jj" >> "$GITHUB_PATH"
+
+      - name: Confirm the jj under test
+        run: jj --version | grep -F "jj ${{ matrix.jj }}"
+
+      - name: cargo test
+        run: cargo test --locked --all-features

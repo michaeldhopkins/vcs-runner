@@ -9,6 +9,8 @@ mod error;
 #[cfg(fuzzing)]
 #[doc(hidden)]
 pub mod fuzz_api;
+#[cfg(all(test, feature = "jj-parse"))]
+mod jj_compat_tests;
 mod jj_version;
 #[cfg(feature = "jj-parse")]
 mod parse_bookmark;
