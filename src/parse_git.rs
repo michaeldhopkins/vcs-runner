@@ -103,15 +103,19 @@ fn c_unquote(field: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-#[cfg(unix)]
+// One function with cfg'd bodies rather than two cfg'd functions: cargo-mutants mutates
+// source text, so a separate non-unix function yields a mutant no unix test build compiles,
+// which reads as MISSED.
 fn path_from_bytes(bytes: Vec<u8>) -> PathBuf {
-    use std::os::unix::ffi::OsStringExt;
-    PathBuf::from(std::ffi::OsString::from_vec(bytes))
-}
-
-#[cfg(not(unix))]
-fn path_from_bytes(bytes: Vec<u8>) -> PathBuf {
-    PathBuf::from(String::from_utf8_lossy(&bytes).into_owned())
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        PathBuf::from(std::ffi::OsString::from_vec(bytes))
+    }
+    #[cfg(not(unix))]
+    {
+        PathBuf::from(String::from_utf8_lossy(&bytes).into_owned())
+    }
 }
 
 #[cfg(test)]
