@@ -10,6 +10,8 @@ mod error;
 #[doc(hidden)]
 pub mod fuzz_api;
 mod jj_version;
+#[cfg(feature = "jj-parse")]
+mod parse_bookmark;
 #[cfg(feature = "git-parse")]
 mod parse_git;
 #[cfg(feature = "jj-parse")]
@@ -24,8 +26,10 @@ pub use error::RunError;
 #[cfg(feature = "git-parse")]
 pub use parse_git::parse_git_diff_name_status;
 #[cfg(feature = "jj-parse")]
+pub use parse_bookmark::{BOOKMARK_TEMPLATE, BookmarkParseResult, parse_bookmark_output};
+#[cfg(feature = "jj-parse")]
 pub use parse_jj::{
-    BOOKMARK_TEMPLATE, LOG_TEMPLATE, BookmarkParseResult, LogParseResult, parse_bookmark_output,
+    LOG_TEMPLATE, LogParseResult,
     parse_diff_summary, parse_log_output, parse_remote_list,
 };
 pub use runner::{

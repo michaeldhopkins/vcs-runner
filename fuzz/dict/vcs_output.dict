@@ -12,6 +12,8 @@
 "\"name\":"
 "\"parents\":"
 "\"remoteBookmarks\":"
+"\"remote\":"
+"\"remoteRefs\":"
 # Values the parsers branch on.
 "\"true\""
 "\"false\""
