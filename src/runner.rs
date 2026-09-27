@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use procpilot::{Cmd, RetryPolicy, RunError, RunOutput};
 
+use crate::jj_version::{divergent_change_id_query, installed_jj_version};
 use crate::parse_op::{parse_id_lines, parse_operation_log};
 
 /// Run a `jj` command in a repo directory, returning captured output.
@@ -324,10 +325,8 @@ pub fn jj_operation_log(
 pub fn jj_divergent_change_ids(repo_path: &Path) -> Result<Vec<String>, RunError> {
     // Working-copy-agnostic: a concurrent writer can leave the working copy stale,
     // and this signal — which exists to detect exactly that — must stay readable.
-    let out = run_jj_utf8_ignore_wc(
-        repo_path,
-        &["log", "-r", "divergent()", "--no-graph", "-T", r#"change_id ++ "\n""#],
-    )?;
+    let query = divergent_change_id_query(installed_jj_version());
+    let out = run_jj_utf8_ignore_wc(repo_path, &[&["log", "--no-graph"][..], &query].concat())?;
     let mut ids = parse_id_lines(&out);
     ids.sort();
     ids.dedup();
@@ -340,13 +339,9 @@ pub fn jj_divergent_change_ids(repo_path: &Path) -> Result<Vec<String>, RunError
 pub fn jj_is_divergent_at_operation(repo_path: &Path, op_id: &str) -> Result<bool, RunError> {
     // `--at-operation` is a global flag and must precede the subcommand.
     // Working-copy-agnostic: reading a past operation's state must not snapshot.
-    let out = run_jj_utf8_ignore_wc(
-        repo_path,
-        &[
-            "--at-operation", op_id,
-            "log", "-r", "divergent()", "--no-graph", "-T", r#"change_id ++ "\n""#,
-        ],
-    )?;
+    let query = divergent_change_id_query(installed_jj_version());
+    let args = [&["--at-operation", op_id, "log", "--no-graph"][..], &query].concat();
+    let out = run_jj_utf8_ignore_wc(repo_path, &args)?;
     Ok(!parse_id_lines(&out).is_empty())
 }
 
@@ -862,8 +857,19 @@ mod tests {
         );
     }
     fn assert_git_healthy(repo: &TestRepo) {
+        // jj before 0.38 never wrote git's empty tree object ("The empty tree is now
+        // always written", jj 0.38 changelog), so fsck on any repo with an empty commit
+        // reports it missing, op restore or not. That one line is jj's, not a defect.
+        const EMPTY_TREE_MISSING: &str = "missing tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904";
         let fsck = repo.git(&["fsck", "--no-dangling"]);
-        assert!(fsck.status.success(), "git fsck: {}", String::from_utf8_lossy(&fsck.stderr));
+        let report = format!(
+            "{}{}",
+            String::from_utf8_lossy(&fsck.stdout),
+            String::from_utf8_lossy(&fsck.stderr)
+        );
+        let only_empty_tree =
+            !report.trim().is_empty() && report.lines().all(|l| l.trim() == EMPTY_TREE_MISSING);
+        assert!(fsck.status.success() || only_empty_tree, "git fsck: {report}");
         assert!(repo.git(&["status"]).status.success(), "git status must work");
     }
 
