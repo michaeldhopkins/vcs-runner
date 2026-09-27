@@ -4,7 +4,34 @@ All notable changes to vcs-runner are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [unreleased]
+## [0.18.0] - 2026-09-26
+
+Supports jj 0.33 and later, tested against real output from jj 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0 and 0.45.1 (see "Supported jj versions" in the README).
+
+### Breaking
+
+- **`detect_vcs` resolves the path before walking up.** A relative path is taken from the working directory, and the walk continues above it: `detect_vcs(Path::new("."))` from a repo subdirectory used to return an error. A path containing `..` is canonicalized up to its last `..`, so the returned root is canonical, and a `..` the filesystem cannot resolve (`missing/..`) is an error. Before, `sub/../other` returned `sub`'s repository. Absolute paths without `..` return the same root as before.
+- **`BOOKMARK_TEMPLATE` output has changed.** It adds `remote` and replaces `remoteBookmarks` with `remoteRefs` (raw `[name, remote]` pairs). `parse_bookmark_output` still reads the old output, using the old rule. Code that parses `BOOKMARK_TEMPLATE` output itself needs updating.
+
+### Bug Fixes
+
+- **Bookmarks.** jj prints one bookmark-list line per ref, including each tracked remote bookmark that points elsewhere. Every such line used to come back as an extra bookmark. Status came from whichever remote bookmarks shared the local target, so a bookmark whose remote had moved read as `Local`, and one sharing a commit with another bookmark's remote read as `Unsynced`. Now only local bookmarks are reported:
+  - `Unsynced` when a remote of theirs points elsewhere or is conflicted;
+  - `Synced` when their own remote is on their target;
+  - `Local` otherwise.
+
+  A deleted or conflicted bookmark's name is decoded properly in `skipped`.
+- **Divergence on older jj.** `jj_divergent_change_ids` and `jj_is_divergent_at_operation` failed on jj before 0.38, which has no `divergent()` revset. They now check `jj --version` and use an equivalent query there.
+- **Renames and copies.** `parse_diff_summary` dropped every rename and copy: jj prints `R src/{a.rs => b.rs}`, not `R a -> b`. The brace form is now decoded.
+- **git paths.** `parse_git_diff_name_status` returned quoted paths (git's default `core.quotePath`, e.g. `"\303\251.rs"`) with their quotes. They are now unquoted.
+- **Trailing whitespace.** Both diff parsers trimmed trailing whitespace off paths.
+
+### Testing
+
+- Five cargo-fuzz targets over every output parser and `detect_vcs`, replayed on each push and PR and burst on each push to main.
+- Per-jj-version fixture tests, and a CI job that runs the suite against six jj releases.
+
+## [0.17.0] - 2026-07-11
 
 ### Features
 
