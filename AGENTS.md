@@ -62,6 +62,8 @@ Release workflow publishes to crates.io on version-bump push to main.
 
 `fuzz-replay.yml` replays every fuzz target's saved corpus on each push to `main` and each PR (the gate). `fuzz.yml` is a ~3-minute burst per target on each push to `main` and on `workflow_dispatch`; it saves the grown corpus and never gates. There is no scheduled fuzzing. See "Fuzzing".
 
+`mutants.yml` runs `cargo mutants --in-diff` over each push to `main` and each PR, plus one rotating slice of the tree on each push to `main`; it never gates. See "Mutation testing".
+
 ## Supported jj versions
 
 **jj 0.33 (2025-09) and later.** The floor is about a year of releases back from 0.45 (2026-09). It is below jjpr's own floor (0.36), and no other dependent states one. Nothing here refuses an older jj, but nothing is tested against one either.
@@ -121,6 +123,27 @@ fuzz/target/aarch64-apple-darwin/release/<target> -runs=0 fuzz/corpus/<target> #
 ```
 
 Run one target at a time: parallel sanitizer builds manufacture `slow-unit` artifacts from contention. `detect_root` changes the working directory per input and restores it before asserting, since libFuzzer writes artifacts relative to it.
+
+## Mutation testing
+
+`cargo mutants` injects plausible bugs and reports the ones no test notices. The method is the `rust-mutation-testing` skill; this section is what is specific to this crate. Config: `.cargo/mutants.toml`.
+
+**How it runs.** `.github/workflows/mutants.yml`, never gating. Every PR and push to `main`: `--in-diff` over the changed code (skipped with a warning above 50 selected mutants, as a reformat would be). Every push to `main` also: one rotating slice, `--shard k/7` with `k = run_number % 7`, so the whole tree is covered once every seven pushes with no long job. There is no whole-tree sweep and no schedule. Locally, one slice: `cargo mutants -j2 --shard 3/7`.
+
+**Size and cost.** 240 mutants after exclusions. Slice 0 of 3 (80 mutants, `detect.rs`, `jj_version.rs`, `lib.rs`, `parse_bookmark.rs`, part of `parse_git.rs`) took 24 minutes at `-j1` on a heavily loaded laptop, about 18s a mutant; N = 7 puts a slice near 10 minutes at that rate. Baseline is ~3s build + ~3s test, so cost is neither build- nor test-dominated. The tests that shell out to jj and git skip when the binary is missing, so CI installs jj 0.45.1 first: without it, every mutant only those tests cover reads as MISSED.
+
+**Excluded, and why.**
+- `src/jj_compat_tests.rs`: test-only code.
+- `src/fuzz_api.rs`: compiled only under `--cfg fuzzing`, so no `cargo test` build contains a mutant there.
+
+**Findings.** Adoption (2026-09-27): a pilot on `parse_git.rs` and slice 0 of 3. Slice 0 reported 57 caught, 5 missed, 7 unviable and 11 timeouts. Re-run serially with `--timeout 120`, 9 of the timeouts were caught: contention, not hangs. The other 2 are real detections. `c_unquote`'s `i += 1` → `-= 1` or `*= 1` never lets the loop finish, so a run holding them exits 3; the workflow counts that as caught. Score: 66 caught / (66 + 5 missed) = 93% before the fixes below. Each fix was proven by hand-applying its mutant; the slice was not re-run. All five misses are resolved:
+- `jj_available`/`git_available` → `true`: every machine running the suite has both, so only a process with an empty `PATH` can show them saying no. `lib.rs` re-runs its own test binary with `PATH=""`.
+- `resolve`'s `last_up + 1` → `* 1`: nothing pinned the path after the last `..`. Now a test does.
+- `installed_jj_version` → `None`: unobservable elsewhere, because the pre-0.38 divergence query works on every version. Now a test compares it with `jj --version`.
+- `resolve`'s `if path.is_relative()` guard → `true`: equivalent (`join` keeps an absolute path), so the guard was removed.
+- The pilot's one miss was the `#[cfg(not(unix))]` `path_from_bytes`, which no build here compiles. It is now one function with cfg'd bodies.
+
+Not yet covered: slices 1 and 2 of that first division (`parse_jj.rs`, `parse_op.rs`, `runner.rs`, `types.rs`, `worktree.rs`, the rest of `parse_git.rs`). The rotating slice reaches them on later pushes.
 
 ## Architecture notes
 
