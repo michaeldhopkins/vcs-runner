@@ -1,0 +1,11 @@
+# cargo-mutants configuration. Method: the `rust-mutation-testing` skill; this crate's
+# sweep, score and exclusions are in AGENTS.md "Mutation testing".
+
+exclude_globs = [
+    # Test-only (`#[cfg(all(test, feature = "jj-parse"))]`): the per-jj-version fixture
+    # checks and their capture helpers. Mutating test code measures nothing.
+    "src/jj_compat_tests.rs",
+    # Compiled only under `--cfg fuzzing` (cargo fuzz), so `cargo test` never builds it
+    # and every mutant would read as MISSED. Thin forwarders to parsers tested directly.
+    "src/fuzz_api.rs",
+]

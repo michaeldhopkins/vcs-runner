@@ -11,3 +11,7 @@
 /fuzz/corpus/*/*
 !/fuzz/corpus/*/seed-*
 /fuzz/new/
+
+# cargo-mutants output (current and previous run).
+/mutants.out/
+/mutants.out.old/
