@@ -136,6 +136,32 @@ mod tests {
         let _ = git_available();
     }
 
+    /// Runs only in the child `nothing_is_available_with_an_empty_path` spawns.
+    #[test]
+    #[ignore = "run by nothing_is_available_with_an_empty_path, with PATH emptied"]
+    fn child_reports_nothing_available() {
+        assert!(!jj_available());
+        assert!(jj_version().is_none());
+        assert!(!git_available());
+        assert!(git_version().is_none());
+    }
+
+    // The probes answer "installed" wherever jj and git are, which is every machine that
+    // runs this suite, so only a process with no PATH can show they ever say no. The
+    // process is this test binary again, since changing PATH here would race other tests.
+    #[test]
+    fn nothing_is_available_with_an_empty_path() {
+        let out = std::process::Command::new(std::env::current_exe().expect("test binary"))
+            .args(["--exact", "tests::child_reports_nothing_available", "--ignored"])
+            .env("PATH", "")
+            .output()
+            .expect("re-run the test binary");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "{stdout}");
+        // A filter that matches nothing also exits 0.
+        assert!(stdout.contains("1 passed"), "the child test did not run: {stdout}");
+    }
+
     #[test]
     fn git_version_matches_availability() {
         if git_available() {
