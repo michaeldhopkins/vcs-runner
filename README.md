@@ -16,8 +16,12 @@ Subprocess runner for [jj](https://jj-vcs.github.io/jj/) and git CLI tools, with
 
 ```toml
 [dependencies]
-vcs-runner = "0.10"
+vcs-runner = "0.18"
 ```
+
+### Supported jj versions
+
+jj 0.33 and later. The parsers are tested against real output from jj 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0 and 0.45.1, and the helpers that run jj are tested against each of those binaries. Where jj's own spelling changed (the `divergent()` revset arrived in 0.38), vcs-runner checks `jj --version` and uses what that jj accepts.
 
 ### Cargo features
 
@@ -28,7 +32,7 @@ Git-only consumers can skip jj parsing:
 
 ```toml
 [dependencies]
-vcs-runner = { version = "0.10", default-features = false, features = ["git-parse"] }
+vcs-runner = { version = "0.18", default-features = false, features = ["git-parse"] }
 ```
 
 ## Running commands
