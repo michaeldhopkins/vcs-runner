@@ -56,9 +56,10 @@ pub fn detect_vcs(path: &Path) -> anyhow::Result<(VcsBackend, PathBuf)> {
 /// directory. So the path is made absolute against `cwd`, and everything up to its
 /// last `..` is canonicalized; what follows has no `..` and may not exist yet.
 fn resolve(path: &Path, cwd: Option<&Path>) -> anyhow::Result<PathBuf> {
+    // `join` keeps an absolute `path` as it is, so no `is_relative` check is needed.
     let absolute = match cwd {
-        Some(cwd) if path.is_relative() => cwd.join(path),
-        _ => path.to_path_buf(),
+        Some(cwd) => cwd.join(path),
+        None => path.to_path_buf(),
     };
     let components: Vec<Component> = absolute.components().collect();
     let Some(last_up) = components.iter().rposition(|c| matches!(c, Component::ParentDir)) else {
@@ -152,6 +153,15 @@ mod tests {
         assert_eq!(backend, VcsBackend::Git);
         assert_eq!(root, tmp.path().canonicalize().expect("canonical"));
         assert!(detect_vcs(&sub.join("missing").join("..")).is_err(), "unresolvable, as for the OS");
+    }
+
+    #[test]
+    fn the_part_after_the_last_dotdot_is_kept_without_it() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        fs::create_dir(tmp.path().join("sub")).expect("mkdir sub");
+        let canonical = tmp.path().canonicalize().expect("canonical");
+        let resolved = resolve(&tmp.path().join("sub/../not-yet/file"), None).expect("resolves");
+        assert_eq!(resolved, canonical.join("not-yet/file"));
     }
 
     #[test]
