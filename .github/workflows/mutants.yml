@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # Needs history to diff against the PR base or the commit a push replaced.
           fetch-depth: 0
@@ -192,7 +192,7 @@ jobs:
 
       - name: Archive mutants.out
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutants-in-diff
           path: mutants.out
@@ -209,7 +209,7 @@ jobs:
       # workflow uses the same N, so all slices agree on how the tree is divided.
       MUTANTS_SLICES: 7
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -286,7 +286,7 @@ jobs:
 
       - name: Archive mutants.out
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutants-slice
           path: mutants.out
