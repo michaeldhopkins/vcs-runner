@@ -596,19 +596,68 @@ mod tests {
         assert!(!is_transient_error(&err));
     }
 
+    /// Run git in `dir` with a fixed identity and no signing, panicking on
+    /// failure; returns trimmed stdout.
+    fn git_ok(dir: &Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("spawn git");
+        assert!(out.status.success(), "git {args:?} failed: {out:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// A git repo with two commits on `main` and an orphan root on `lone`.
+    fn merge_base_repo() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let d = tmp.path();
+        git_ok(d, &["init", "--quiet", "-b", "main"]);
+        git_ok(d, &["commit", "--quiet", "--allow-empty", "-m", "one"]);
+        git_ok(d, &["commit", "--quiet", "--allow-empty", "-m", "two"]);
+        git_ok(d, &["checkout", "--quiet", "--orphan", "lone"]);
+        git_ok(d, &["commit", "--quiet", "--allow-empty", "-m", "orphan"]);
+        tmp
+    }
+
+    #[test]
+    fn git_merge_base_finds_common_ancestor() {
+        if !git_installed() {
+            return;
+        }
+        let tmp = merge_base_repo();
+        let first = git_ok(tmp.path(), &["rev-parse", "main~1"]);
+        assert_eq!(
+            git_merge_base(tmp.path(), "main", "main~1").unwrap(),
+            Some(first)
+        );
+    }
+
+    // git exits 1 with no output when the histories share no commit.
     #[test]
     fn git_merge_base_returns_none_for_unrelated() {
         if !git_installed() {
             return;
         }
-        let tmp = tempfile::tempdir().expect("tempdir");
-        std::process::Command::new("git")
-            .args(["init", "--quiet"])
-            .current_dir(tmp.path())
-            .status()
-            .expect("git init");
-        // Without commits, git merge-base fails with non-zero; accept that shape.
-        let _ = git_merge_base(tmp.path(), "HEAD", "HEAD");
+        let tmp = merge_base_repo();
+        assert_eq!(git_merge_base(tmp.path(), "main", "lone").unwrap(), None);
+    }
+
+    // Any other failure (git exits 128 on an unknown revision) is an error,
+    // not "no common ancestor".
+    #[test]
+    fn git_merge_base_errors_on_unknown_revision() {
+        if !git_installed() {
+            return;
+        }
+        let tmp = merge_base_repo();
+        let err = git_merge_base(tmp.path(), "main", "no-such-rev").unwrap_err();
+        match err {
+            RunError::NonZeroExit { status, .. } => assert_ne!(status.code(), Some(1)),
+            other => panic!("expected NonZeroExit, got {other:?}"),
+        }
     }
 
     // --- jj operation-log helpers ---

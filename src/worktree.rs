@@ -81,6 +81,19 @@ mod tests {
         assert_eq!(read_working_file_bytes(dir.path(), "nope").unwrap(), None);
     }
 
+    // Only a missing file reads as deleted. Any other I/O error (here, the path
+    // is a directory) must surface, or a permission or type problem would show
+    // up in the caller's diff as a deletion.
+    #[test]
+    fn other_io_errors_are_not_read_as_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        let text = read_working_file(dir.path(), "sub").unwrap_err();
+        assert_ne!(text.kind(), std::io::ErrorKind::NotFound);
+        let bytes = read_working_file_bytes(dir.path(), "sub").unwrap_err();
+        assert_ne!(bytes.kind(), std::io::ErrorKind::NotFound);
+    }
+
     #[test]
     fn binary_detection_flags_nul_and_clears_text() {
         let dir = tempfile::tempdir().unwrap();
