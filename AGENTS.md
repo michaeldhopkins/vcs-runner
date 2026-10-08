@@ -59,7 +59,7 @@ CI runs on push/PR, on the toolchain `rust-toolchain.toml` pins (moved to each n
 - `cargo doc --no-deps` with `RUSTDOCFLAGS="-D warnings"` (catches broken doc links)
 - `cargo deny check`: advisories, bans, licenses and sources (`deny.toml`); `tests/ci_rules.rs` fails if a workflow narrows it
 - `msrv`: `cargo check --locked` on the declared `rust-version`
-- `jj-versions`: the whole test suite against jj 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0 and 0.45.1 (see "Supported jj versions")
+- `jj-versions`: the whole test suite against jj 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0, 0.45.1 and 0.46.0 (see "Supported jj versions")
 
 Release workflow publishes to crates.io on version-bump push to main.
 
@@ -73,7 +73,7 @@ Dependencies move through the owner's `vcs-runner-deps` upkeep job, never Depend
 
 **jj 0.33 (2025-09) and later.** The floor is about a year of releases back from 0.45 (2026-09). It is below jjpr's own floor (0.36), and no other dependent states one. Nothing here refuses an older jj, but nothing is tested against one either.
 
-The proof is real output, not the changelog. `src/jj_compat_tests.rs` has one test per captured version, reading `tests/fixtures/jj/<version>/`. That output comes from a scratch repository with file and directory renames, a trailing-space path and a non-ASCII path, local, pushed, moved and deleted bookmarks, a `feat@v2` name, a conflicted bookmark and a divergent change. CI's `jj-versions` job runs the whole test suite, including every test that shells out to jj, against 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0 and 0.45.1.
+The proof is real output, not the changelog. `src/jj_compat_tests.rs` has one test per captured version, reading `tests/fixtures/jj/<version>/`. That output comes from a scratch repository with file and directory renames, a trailing-space path and a non-ASCII path, local, pushed, moved and deleted bookmarks, a `feat@v2` name, a conflicted bookmark and a divergent change. CI's `jj-versions` job runs the whole test suite, including every test that shells out to jj, against 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0, 0.45.1 and 0.46.0.
 
 To add a version, download the jj release binary and capture (the capture isolates itself from your jj config), then add a `version_tests!` line:
 
@@ -86,8 +86,8 @@ What changed across the range, and what vcs-runner does about it:
 | Surface | Changed in | Shape | Handling |
 |---|---|---|---|
 | `divergent()` revset | added in 0.38 | "Function `divergent` doesn't exist" before | `src/jj_version.rs` reads `jj --version` once; before 0.38 (or unknown) it uses `-r 'all()' -T 'if(divergent, …)'` |
-| `jj diff --summary` renames/copies | since 0.21 (copy info in all diff formats) | `R prefix/{old => new}/suffix`, unchanged 0.33 to 0.45 | brace decoding; `R old -> new` still accepted, though no jj in range prints it |
-| `jj bookmark list -T` | unchanged 0.33 to 0.45 | one line per ref: local, each tracked remote that points elsewhere, remote-only after a local delete; `<Error: No Commit available>` for conflicted | `BOOKMARK_TEMPLATE` emits `remote`; see `src/parse_bookmark.rs` |
+| `jj diff --summary` renames/copies | since 0.21 (copy info in all diff formats) | `R prefix/{old => new}/suffix`, unchanged 0.33 to 0.46 | brace decoding; `R old -> new` still accepted, though no jj in range prints it |
+| `jj bookmark list -T` | unchanged 0.33 to 0.46 | one line per ref: local, each tracked remote that points elsewhere, remote-only after a local delete; `<Error: No Commit available>` for conflicted, `<Error: No value set to Option<Commit>>` from 0.46 | `BOOKMARK_TEMPLATE` emits `remote`; see `src/parse_bookmark.rs` |
 | `RefSymbol` in templates | `.remote()` became `Option` in 0.30 | `stringify(name)` quotes names needing it (`"feat@v2"@origin`); `escape_json()` does not | `BOOKMARK_TEMPLATE` uses raw pairs; `LogEntry::remote_bookmarks` keeps jj's quoted symbol form |
 | `LOG_TEMPLATE`, op-log template, `--at-operation`, `--ignore-working-copy`, `present()`, `latest()` | unchanged in range | | none needed |
 | git empty tree in colocated repos | written from 0.38 | before, `git fsck` reports `missing tree 4b825dc…` | jj's behaviour, not ours; the colocation tests allow exactly that line |

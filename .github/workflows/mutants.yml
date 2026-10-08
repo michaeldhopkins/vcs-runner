@@ -54,7 +54,7 @@ jobs:
       - name: Install jj
         env:
           GH_TOKEN: ${{ github.token }}
-          JJ_VERSION: "0.45.1"
+          JJ_VERSION: "0.46.0"
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/jj"
@@ -227,7 +227,7 @@ jobs:
       - name: Install jj
         env:
           GH_TOKEN: ${{ github.token }}
-          JJ_VERSION: "0.45.1"
+          JJ_VERSION: "0.46.0"
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/jj"
