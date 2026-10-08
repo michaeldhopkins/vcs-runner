@@ -57,11 +57,13 @@ CI runs on push/PR, on the toolchain `rust-toolchain.toml` pins (moved to each n
 - `cargo test --locked` (default and `--no-default-features`)
 - `cargo clippy --locked --all-targets -- -D warnings` (both feature configs)
 - `cargo doc --no-deps` with `RUSTDOCFLAGS="-D warnings"` (catches broken doc links)
-- `cargo deny check licenses`
+- `cargo deny check`: advisories, bans, licenses and sources (`deny.toml`); `tests/ci_rules.rs` fails if a workflow narrows it
 - `msrv`: `cargo check --locked` on the declared `rust-version`
 - `jj-versions`: the whole test suite against jj 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0 and 0.45.1 (see "Supported jj versions")
 
 Release workflow publishes to crates.io on version-bump push to main.
+
+Dependencies move through the owner's `vcs-runner-deps` upkeep job, never Dependabot. It also adopts each new procpilot release; since vcs-runner re-exports procpilot's types, a procpilot minor is a vcs-runner minor.
 
 `fuzz-replay.yml` replays every fuzz target's saved corpus on each push to `main` and each PR (the gate). `fuzz.yml` is a ~3-minute burst per target on each push to `main` and on `workflow_dispatch`; it saves the grown corpus and never gates. There is no scheduled fuzzing. See "Fuzzing".
 

@@ -51,8 +51,8 @@ jobs:
 
       - uses: taiki-e/install-action@cargo-deny
 
-      - name: cargo deny check licenses
-        run: cargo deny check licenses
+      - name: cargo deny check
+        run: cargo deny check
 
   # vcs-runner supports jj 0.33 and later (AGENTS.md "Supported jj versions"). Every
   # test that shells out to jj runs against the oldest supported release, the ones where

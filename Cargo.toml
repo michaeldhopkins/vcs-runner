@@ -17,6 +17,8 @@ exclude = [
     "fuzz/",
     # Reads fuzz/ and .github/, which are not in the package.
     "tests/fuzz_targets_wired.rs",
+    # Reads .github/ and deny.toml, which are not in the package.
+    "tests/ci_rules.rs",
     "AGENTS.md",
     "CLAUDE.md",
     "cliff.toml",
