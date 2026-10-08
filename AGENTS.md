@@ -135,7 +135,7 @@ Run one target at a time: parallel sanitizer builds manufacture `slow-unit` arti
 
 **How it runs.** `.github/workflows/mutants.yml`, never gating. Every PR and push to `main`: `--in-diff` over the changed code (skipped with a warning above 50 selected mutants, as a reformat would be). Every push to `main` also: one rotating slice, `--shard k/7` with `k = run_number % 7`, so the whole tree is covered once every seven pushes with no long job. There is no whole-tree sweep and no schedule. Locally, one slice: `cargo mutants -j2 --shard 3/7`.
 
-**Size and cost.** 240 mutants after exclusions. Slice 0 of 3 (80 mutants, `detect.rs`, `jj_version.rs`, `lib.rs`, `parse_bookmark.rs`, part of `parse_git.rs`) took 24 minutes at `-j1` on a heavily loaded laptop, about 18s a mutant; N = 7 puts a slice near 10 minutes at that rate. Baseline is ~3s build + ~3s test, so cost is neither build- nor test-dominated. The tests that shell out to jj and git skip when the binary is missing, so CI installs jj 0.45.1 first: without it, every mutant only those tests cover reads as MISSED.
+**Size and cost.** 237 mutants after exclusions. Slice 0 of 3 (80 mutants, `detect.rs`, `jj_version.rs`, `lib.rs`, `parse_bookmark.rs`, part of `parse_git.rs`) took 24 minutes at `-j1` on a heavily loaded laptop, about 18s a mutant; N = 7 puts a slice near 10 minutes at that rate. Baseline is ~3s build + ~3s test, so cost is neither build- nor test-dominated. The tests that shell out to jj and git skip when the binary is missing, so CI installs jj 0.45.1 first: without it, every mutant only those tests cover reads as MISSED.
 
 **Excluded, and why.**
 - `src/jj_compat_tests.rs`: test-only code.
@@ -148,7 +148,7 @@ Run one target at a time: parallel sanitizer builds manufacture `slow-unit` arti
 - `resolve`'s `if path.is_relative()` guard → `true`: equivalent (`join` keeps an absolute path), so the guard was removed.
 - The pilot's one miss was the `#[cfg(not(unix))]` `path_from_bytes`, which no build here compiles. It is now one function with cfg'd bodies.
 
-Not yet covered: slices 1 and 2 of that first division (`parse_jj.rs`, `parse_op.rs`, `runner.rs`, `types.rs`, `worktree.rs`, the rest of `parse_git.rs`). The rotating slice reaches them on later pushes.
+Whole tree (2026-10-08), run locally in five per-file pieces of 2 to 9 minutes each at `-j2`: 237 mutants, 202 caught, 8 missed, 5 timeouts, 22 unviable. All 8 misses were in `runner.rs`: `run_{jj,git}_utf8_with_timeout` and `run_{jj,git}_utf8_with_retry` → `Ok(String::new())` or `Ok("xyzzy")`, because no test ran those wrappers to success. Now every wrapper is checked against a real command's output, and each retry wrapper against a command that fails until the retry predicate makes it succeed. The 5 timeouts are all `c_unquote`'s index steps (`+=` → `-=` or `*=` after a plain byte, an octal escape and a named escape), which never let the loop finish: detections, and why a clean run exits 3. Score after the fixes: all 215 viable mutants caught (5 of them by timeout), no exclusions.
 
 ## Architecture notes
 
@@ -164,6 +164,7 @@ Not yet covered: slices 1 and 2 of that first division (`parse_jj.rs`, `parse_op
 - `src/parse_op.rs` — line parsers for the op-log helpers in `runner.rs` (ungated, crate-private)
 - `src/fuzz_api.rs` — fuzz-only entry points to crate-private parsers, compiled only under `cargo fuzz`
 - `tests/file_length.rs` — the file-length ratchet: 400 production lines per file, nothing pinned (`src/runner.rs` was, until the rustfmt reformat brought it to 356); new code goes in a new module
+- `tests/properties.rs` — the property-test ratchet: `tests/properties.toml` classifies every file under `src/` as pure (naming its `proptest!` properties) or effectful (with a reason); a new file must be classified, and a pure one needs properties or an entry in `owed`, which may only shrink
 - `src/types.rs` — shared types like `LogEntry`, `Bookmark`, `FileChange`
 
 The current self-contained implementation will eventually move its generic subprocess primitives to depend on `procpilot`. Until that migration completes, vcs-runner ships its own `RunError`/`RunOutput`/etc.
