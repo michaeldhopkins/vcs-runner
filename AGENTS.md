@@ -51,13 +51,14 @@ For breaking releases, document migration steps in the commit message and releas
 
 ## CI expectations
 
-CI runs on push/PR:
+CI runs on push/PR, on the toolchain `rust-toolchain.toml` pins (moved to each new stable within 30 days):
 - `cargo fmt --all --check`, for the crate and for `fuzz/` (config: `rustfmt.toml`)
 - `cargo check --locked` (default and `--no-default-features`)
 - `cargo test --locked` (default and `--no-default-features`)
 - `cargo clippy --locked --all-targets -- -D warnings` (both feature configs)
 - `cargo doc --no-deps` with `RUSTDOCFLAGS="-D warnings"` (catches broken doc links)
 - `cargo deny check licenses`
+- `msrv`: `cargo check --locked` on the declared `rust-version`
 - `jj-versions`: the whole test suite against jj 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0 and 0.45.1 (see "Supported jj versions")
 
 Release workflow publishes to crates.io on version-bump push to main.
