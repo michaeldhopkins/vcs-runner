@@ -9,10 +9,15 @@ use std::path::Path;
 fn workflows() -> Vec<(String, String)> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows");
     let mut found: Vec<(String, String)> = std::fs::read_dir(&dir)
-        .unwrap()
-        .map(|e| e.unwrap().path())
+        .expect("read .github/workflows")
+        .map(|e| e.expect("list .github/workflows").path())
         .filter(|p| p.extension().is_some_and(|x| x == "yml" || x == "yaml"))
-        .map(|p| (p.file_name().unwrap().to_string_lossy().into_owned(), std::fs::read_to_string(&p).unwrap()))
+        .map(|p| {
+            (
+                p.file_name().expect("a file name").to_string_lossy().into_owned(),
+                std::fs::read_to_string(&p).expect("read a workflow"),
+            )
+        })
         .collect();
     found.sort();
     found
@@ -42,10 +47,10 @@ fn bound_problems(name: &str, text: &str) -> Vec<String> {
                 problems.push(format!("{name}: job {job} sets no timeout-minutes"));
             }
             current = Some((line.trim().trim_end_matches(':'), false));
-        } else if indent == 4 && line.trim_start().starts_with("timeout-minutes:") {
-            if let Some((job, _)) = current {
-                current = Some((job, true));
-            }
+        } else if let Some(job) =
+            current.as_mut().filter(|_| indent == 4 && line.trim_start().starts_with("timeout-minutes:"))
+        {
+            job.1 = true;
         }
     }
     if let Some((job, false)) = current {
