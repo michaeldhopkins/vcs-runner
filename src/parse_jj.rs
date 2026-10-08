@@ -417,4 +417,139 @@ mod tests {
         let changes = parse_diff_summary("R just_one_path.rs");
         assert!(changes.is_empty());
     }
+
+    mod properties {
+        use std::path::Path;
+
+        use proptest::prelude::*;
+
+        use super::*;
+
+        fn flag(set: bool) -> &'static str {
+            if set { "true" } else { "false" }
+        }
+
+        /// A path component that `Path` keeps as written (never `.` or `..`) and that
+        /// holds none of the characters a brace rename is spelled with.
+        const COMPONENT: &str = "[a-z0-9_][a-z0-9_. -]{0,5}";
+
+        proptest! {
+            // `LOG_TEMPLATE` renders each field with jj's `escape_json()`, which encodes
+            // as serde_json does; blank lines between entries are ignored.
+            #[test]
+            fn a_rendered_log_reads_back_exactly(
+                entries in prop::collection::vec(
+                    (
+                        ("[0-9a-f]{1,12}", "[k-z]{1,12}", ".{0,12}", ".{0,12}", "(?s).{0,40}"),
+                        (
+                            prop::collection::vec("[0-9a-f]{1,12}", 0..3),
+                            prop::collection::vec(".{1,10}", 0..3),
+                            prop::collection::vec(".{1,10}", 0..3),
+                        ),
+                        (any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>()),
+                    ),
+                    0..5,
+                ),
+            ) {
+                let mut rendered = String::new();
+                for ((commit, change, name, email, description), (parents, local, remote), (wc, conflict, empty, blank)) in
+                    &entries
+                {
+                    let line = serde_json::json!({
+                        "commitId": commit, "changeId": change, "authorName": name, "authorEmail": email,
+                        "description": description, "parents": parents, "localBookmarks": local,
+                        "remoteBookmarks": remote, "isWorkingCopy": flag(*wc), "conflict": flag(*conflict),
+                        "empty": flag(*empty),
+                    });
+                    rendered.push_str(&format!("{line}\n"));
+                    if *blank {
+                        rendered.push('\n');
+                    }
+                }
+                let parsed = parse_log_output(&rendered);
+                prop_assert!(parsed.skipped.is_empty(), "{:?}", parsed.skipped);
+                prop_assert_eq!(parsed.entries.len(), entries.len());
+                for (got, ((commit, change, name, email, description), (parents, local, remote), (wc, conflict, empty, _))) in
+                    parsed.entries.iter().zip(&entries)
+                {
+                    prop_assert_eq!(&got.commit_id, commit);
+                    prop_assert_eq!(&got.change_id, change);
+                    prop_assert_eq!(&got.author_name, name);
+                    prop_assert_eq!(&got.author_email, email);
+                    prop_assert_eq!(&got.description, description);
+                    prop_assert_eq!(&got.parents, parents);
+                    prop_assert_eq!(&got.local_bookmarks, local);
+                    prop_assert_eq!(&got.remote_bookmarks, remote);
+                    prop_assert_eq!(got.working_copy == WorkingCopy::Current, *wc);
+                    prop_assert_eq!(got.conflict.is_conflicted(), *conflict);
+                    prop_assert_eq!(got.content.is_empty(), *empty);
+                }
+            }
+
+            #[test]
+            fn a_remote_list_reads_back_exactly(
+                remotes in prop::collection::vec(("[a-z][a-z0-9_-]{0,8}", "[a-z][a-z0-9:/@._-]{0,20}"), 0..5),
+            ) {
+                let rendered: String = remotes.iter().map(|(name, url)| format!("{name} {url}\n")).collect();
+                let expected: Vec<GitRemote> =
+                    remotes.into_iter().map(|(name, url)| GitRemote { name, url }).collect();
+                prop_assert_eq!(parse_remote_list(&rendered), expected);
+            }
+
+            // Any path is taken as printed after the status letter, braces and arrows
+            // included: only a rename or copy line is split.
+            #[test]
+            fn a_plain_change_keeps_its_path_exactly(
+                letter in prop::sample::select(vec!["M", "A", "D"]),
+                path in "[^\n\r]{0,20}[^\n\r\t ]",
+            ) {
+                let changes = parse_diff_summary(&format!("{letter} {path}\n"));
+                prop_assert_eq!(changes.len(), 1);
+                prop_assert_eq!(&changes[0].path, &PathBuf::from(&path));
+                prop_assert_eq!(&changes[0].from_path, &None);
+            }
+
+            // The oracle is `Path::join`, not the parser's own joining rule: a side may be
+            // empty (`g/{e => }/x.rs`), and the two paths must still come out whole.
+            #[test]
+            fn a_brace_rename_expands_to_both_whole_paths(
+                prefix in prop::collection::vec(COMPONENT, 0..3),
+                old in prop::option::of(COMPONENT),
+                new in prop::option::of(COMPONENT),
+                suffix in prop::collection::vec(COMPONENT, 0..3),
+                letter in prop::sample::select(vec!["R", "C"]),
+            ) {
+                let prefix_text: String = prefix.iter().map(|c| format!("{c}/")).collect();
+                let suffix_text: String = suffix.iter().map(|c| format!("/{c}")).collect();
+                let (old, new) = (old.unwrap_or_default(), new.unwrap_or_default());
+                let whole = |middle: &str| {
+                    let mut path = prefix.iter().fold(PathBuf::new(), |p, c| p.join(c));
+                    if !middle.is_empty() {
+                        path.push(middle);
+                    }
+                    suffix.iter().fold(path, |p, c| p.join(c))
+                };
+                let (from, to) = (whole(&old), whole(&new));
+                prop_assume!(from != Path::new("") && to != Path::new(""));
+
+                let line = format!("{letter} {prefix_text}{{{old} => {new}}}{suffix_text}");
+                let changes = parse_diff_summary(&line);
+                prop_assert_eq!(changes.len(), 1, "{}", line);
+                prop_assert_eq!(&changes[0].from_path, &Some(from), "{}", line);
+                prop_assert_eq!(&changes[0].path, &to, "{}", line);
+            }
+
+            #[test]
+            fn an_arrow_rename_splits_at_the_arrow(
+                from in "[a-z0-9_./]{1,16}",
+                to in "[a-z0-9_./]{1,16}",
+                letter in prop::sample::select(vec!["R", "C"]),
+            ) {
+                let changes = parse_diff_summary(&format!("{letter} {from} -> {to}"));
+                prop_assert_eq!(changes.len(), 1);
+                prop_assert_eq!(&changes[0].from_path, &Some(PathBuf::from(&from)));
+                prop_assert_eq!(&changes[0].path, &PathBuf::from(&to));
+            }
+        }
+    }
 }

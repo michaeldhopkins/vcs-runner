@@ -224,4 +224,85 @@ mod tests {
         let changes = parse_git_diff_name_status("M\tpath with spaces.rs");
         assert_eq!(changes[0].path, PathBuf::from("path with spaces.rs"));
     }
+
+    #[cfg(unix)]
+    mod properties {
+        use std::os::unix::ffi::OsStringExt;
+
+        use proptest::prelude::*;
+
+        use super::*;
+
+        /// A path field as `git diff --name-status` prints it with the default
+        /// `core.quotePath` (git's `quote.c`): any path holding a control byte, `"`, `\`
+        /// or a byte of 0x80 and up is quoted, with named escapes where C has them and
+        /// three octal digits otherwise.
+        fn git_quote(path: &[u8]) -> String {
+            let needs_quoting = path.iter().any(|&b| b < 0x20 || b == b'"' || b == b'\\' || b >= 0x7f);
+            if !needs_quoting {
+                return String::from_utf8(path.to_vec()).expect("plain ASCII");
+            }
+            let mut out = String::from("\"");
+            for &b in path {
+                match b {
+                    0x07 => out.push_str("\\a"),
+                    0x08 => out.push_str("\\b"),
+                    b'\t' => out.push_str("\\t"),
+                    b'\n' => out.push_str("\\n"),
+                    0x0b => out.push_str("\\v"),
+                    0x0c => out.push_str("\\f"),
+                    b'\r' => out.push_str("\\r"),
+                    b'"' => out.push_str("\\\""),
+                    b'\\' => out.push_str("\\\\"),
+                    b if !(0x20..0x7f).contains(&b) => out.push_str(&format!("\\{b:03o}")),
+                    b => out.push(char::from(b)),
+                }
+            }
+            out.push('"');
+            out
+        }
+
+        /// Any path a filesystem can hold: bytes other than NUL, weighted towards the
+        /// ones git quotes.
+        fn path_bytes() -> impl Strategy<Value = Vec<u8>> {
+            let byte = prop_oneof![
+                3 => b'a'..=b'z',
+                1 => prop::sample::select(vec![b' ', b'"', b'\\', b'\t', b'\n', b'\r', b'/', b'.']),
+                1 => 1u8..=0xff,
+            ];
+            prop::collection::vec(byte, 1..12)
+        }
+
+        fn path_of(bytes: Vec<u8>) -> PathBuf {
+            PathBuf::from(std::ffi::OsString::from_vec(bytes))
+        }
+
+        proptest! {
+            #[test]
+            fn a_printed_change_reads_back_to_the_same_path(
+                path in path_bytes(),
+                letter in prop::sample::select(vec!["M", "A", "D"]),
+            ) {
+                let line = format!("{letter}\t{}\n", git_quote(&path));
+                let changes = parse_git_diff_name_status(&line);
+                prop_assert_eq!(changes.len(), 1, "{:?}", line);
+                prop_assert_eq!(&changes[0].path, &path_of(path), "{:?}", line);
+                prop_assert_eq!(&changes[0].from_path, &None);
+            }
+
+            #[test]
+            fn a_printed_rename_reads_back_to_both_paths(
+                from in path_bytes(),
+                to in path_bytes(),
+                letter in prop::sample::select(vec!["R", "C"]),
+                score in 0u32..=100,
+            ) {
+                let line = format!("{letter}{score:03}\t{}\t{}\n", git_quote(&from), git_quote(&to));
+                let changes = parse_git_diff_name_status(&line);
+                prop_assert_eq!(changes.len(), 1, "{:?}", line);
+                prop_assert_eq!(&changes[0].from_path, &Some(path_of(from)), "{:?}", line);
+                prop_assert_eq!(&changes[0].path, &path_of(to), "{:?}", line);
+            }
+        }
+    }
 }

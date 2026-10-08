@@ -1,0 +1,44 @@
+# Every source file, classified. `tests/properties.rs` enforces it.
+#
+# A `pure` file's behaviour is a function of its inputs and names the property tests
+# (functions inside a `proptest!` block in that file) that cover it. An `effectful`
+# file says in a line why it is not pure. A pure file with no properties yet goes in
+# `owed`, which may only shrink: an entry that gains a property leaves in the same change.
+
+owed = []
+
+[pure]
+"src/jj_version.rs" = [
+  "a_printed_version_parses_back",
+  "the_divergent_revset_is_used_from_0_38_on_and_never_before",
+]
+"src/parse_bookmark.rs" = [
+  "every_bookmark_reads_back_with_the_status_it_was_printed_with",
+]
+"src/parse_git.rs" = [
+  "a_printed_change_reads_back_to_the_same_path",
+  "a_printed_rename_reads_back_to_both_paths",
+]
+"src/parse_jj.rs" = [
+  "a_rendered_log_reads_back_exactly",
+  "a_remote_list_reads_back_exactly",
+  "a_plain_change_keeps_its_path_exactly",
+  "a_brace_rename_expands_to_both_whole_paths",
+  "an_arrow_rename_splits_at_the_arrow",
+]
+"src/parse_op.rs" = [
+  "an_operation_log_reads_back_exactly",
+  "id_lines_read_back_in_order_whatever_blank_lines_sit_between",
+]
+"src/types.rs" = [
+  "the_summary_is_everything_before_the_first_line_break",
+]
+
+[effectful]
+"src/detect.rs" = "walks the filesystem for .jj and .git markers"
+"src/error.rs" = "re-exports procpilot's error type; no logic"
+"src/fuzz_api.rs" = "fuzz-only forwarders to the parsers, compiled only under cargo fuzz"
+"src/jj_compat_tests.rs" = "test-only: reads captured fixtures and runs jj to capture them"
+"src/lib.rs" = "module declarations, and probes PATH for jj and git"
+"src/runner.rs" = "runs jj and git subprocesses"
+"src/worktree.rs" = "reads files from the working copy"

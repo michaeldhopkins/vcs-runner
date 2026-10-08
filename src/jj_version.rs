@@ -93,4 +93,37 @@ mod tests {
             assert!(query[3].starts_with("if(divergent"), "{version:?}");
         }
     }
+
+    mod properties {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        proptest! {
+            // A release build appends `-<hash>`, a dirty one `+dirty`; neither is part of
+            // the version.
+            #[test]
+            fn a_printed_version_parses_back(
+                major in any::<u32>(),
+                minor in any::<u32>(),
+                patch in any::<u32>(),
+                suffix in "(-[0-9a-f]{1,12}|\\+dirty)?",
+            ) {
+                let printed = format!("jj {major}.{minor}.{patch}{suffix}\n");
+                prop_assert_eq!(parse_jj_version(&printed), Some(v(major, minor, patch)));
+            }
+
+            #[test]
+            fn the_divergent_revset_is_used_from_0_38_on_and_never_before(
+                major in 0u32..3,
+                minor in 0u32..80,
+                patch in 0u32..5,
+            ) {
+                let version = v(major, minor, patch);
+                let query = divergent_change_id_query(Some(version));
+                let new_enough = major > 0 || minor >= 38;
+                prop_assert_eq!(query[1] == "divergent()", new_enough, "{:?}", version);
+            }
+        }
+    }
 }

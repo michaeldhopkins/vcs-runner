@@ -342,4 +342,139 @@ mod tests {
             assert!(BOOKMARK_TEMPLATE.contains(key), "{key}");
         }
     }
+
+    mod properties {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        /// How one bookmark stands, and so which lines jj prints for it.
+        #[derive(Debug, Clone, Copy)]
+        enum State {
+            /// No remote bookmark of its own (another bookmark's, or one on `git`, may sit
+            /// on its target).
+            Local,
+            /// Its remote bookmark is on its target: no line of its own, listed in
+            /// `remoteRefs`.
+            SyncedOnTarget,
+            /// A remote line at the same commit, as `--all-remotes` prints.
+            SyncedLine,
+            /// A remote line at another commit.
+            Behind,
+            /// A remote line jj cannot render.
+            RemoteConflicted,
+            /// The local bookmark itself is conflicted: reported by name in `skipped`.
+            Conflicted,
+            /// Deleted locally, still on the remote: no bookmark at all.
+            DeletedLocally,
+        }
+
+        fn state() -> impl Strategy<Value = State> {
+            prop::sample::select(vec![
+                State::Local,
+                State::SyncedOnTarget,
+                State::SyncedLine,
+                State::Behind,
+                State::RemoteConflicted,
+                State::Conflicted,
+                State::DeletedLocally,
+            ])
+        }
+
+        fn json(s: &str) -> String {
+            serde_json::to_string(s).expect("a string encodes")
+        }
+
+        fn line(name: &str, remote: Option<&str>, commit: &str, local: &[&str], refs: &[(&str, &str)]) -> String {
+            let remote = remote.map_or_else(|| "null".to_string(), json);
+            let local: Vec<String> = local.iter().map(|n| json(n)).collect();
+            let refs: Vec<String> = refs.iter().map(|(n, r)| format!("[{},{}]", json(n), json(r))).collect();
+            format!(
+                r#"{{"name":{},"remote":{remote},"commitId":{},"changeId":{},"localBookmarks":[{}],"remoteRefs":[{}]}}"#,
+                json(name),
+                json(commit),
+                json(&format!("c{commit}")),
+                local.join(","),
+                refs.join(",")
+            )
+        }
+
+        proptest! {
+            // Names are arbitrary text, `@` and quotes included; the remote may be any
+            // real remote name. The expected status is built into the case, not derived
+            // from the parser's rule.
+            #[test]
+            fn every_bookmark_reads_back_with_the_status_it_was_printed_with(
+                bookmarks in prop::collection::btree_map(".{1,8}", (state(), any::<bool>()), 0..6),
+                remote in prop::sample::select(vec!["origin", "upstream", "o@x"]),
+            ) {
+                let mut lines = Vec::new();
+                let mut expected = Vec::new();
+                let mut skipped = Vec::new();
+                for (i, (name, (state, noise))) in bookmarks.iter().enumerate() {
+                    let commit = format!("a{i}");
+                    let mut refs = vec![(name.as_str(), "git")];
+                    if *noise {
+                        refs.push(("someone-else", remote));
+                    }
+                    let local = |refs: &[(&str, &str)]| line(name, None, &commit, &[name.as_str()], refs);
+                    let status = match state {
+                        State::Local => {
+                            lines.push(local(&refs));
+                            Some(RemoteStatus::Local)
+                        }
+                        State::SyncedOnTarget => {
+                            refs.push((name.as_str(), remote));
+                            lines.push(local(&refs));
+                            Some(RemoteStatus::Synced)
+                        }
+                        State::SyncedLine => {
+                            lines.push(local(&refs));
+                            lines.push(line(name, Some(remote), &commit, &[], &[(name.as_str(), remote)]));
+                            Some(RemoteStatus::Synced)
+                        }
+                        State::Behind => {
+                            lines.push(local(&refs));
+                            lines.push(line(name, Some(remote), &format!("b{i}"), &[], &[(name.as_str(), remote)]));
+                            Some(RemoteStatus::Unsynced)
+                        }
+                        State::RemoteConflicted => {
+                            lines.push(local(&refs));
+                            lines.push(format!(
+                                r#"{{"name":{},"remote":{},"commitId":<Error: No Commit available>}}"#,
+                                json(name),
+                                json(remote)
+                            ));
+                            Some(RemoteStatus::Unsynced)
+                        }
+                        State::Conflicted => {
+                            lines.push(format!(
+                                r#"{{"name":{},"remote":null,"commitId":<Error: No Commit available>}}"#,
+                                json(name)
+                            ));
+                            skipped.push(name.clone());
+                            None
+                        }
+                        State::DeletedLocally => {
+                            lines.push(format!(
+                                r#"{{"name":{},"remote":{},"commitId":<Error: No Commit available>}}"#,
+                                json(name),
+                                json(remote)
+                            ));
+                            None
+                        }
+                    };
+                    if let Some(status) = status {
+                        expected.push((name.clone(), commit.clone(), status));
+                    }
+                }
+
+                let parsed = parse_bookmark_output(&lines.join("\n"));
+                let got: Vec<(String, String, RemoteStatus)> =
+                    parsed.bookmarks.into_iter().map(|b| (b.name, b.commit_id, b.remote)).collect();
+                prop_assert_eq!(got, expected);
+                prop_assert_eq!(parsed.skipped, skipped);
+            }
+        }
+    }
 }

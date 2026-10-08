@@ -50,6 +50,8 @@ serde_json = "1"
 # exact line spans.
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "2", features = ["full", "visit"] }
+proptest = "1"
+toml = "0.9"
 
 [lints.rust]
 # `cargo fuzz` builds with `--cfg fuzzing`, which gates `src/fuzz_api.rs`.

@@ -49,4 +49,39 @@ mod tests {
         assert_eq!(parse_id_lines("b\n\na\nb\n"), vec!["b", "a", "b"]);
         assert!(parse_id_lines("").is_empty());
     }
+
+    mod properties {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        proptest! {
+            // Ids never hold a tab; a description may, and never holds a line break.
+            #[test]
+            fn an_operation_log_reads_back_exactly(
+                ops in prop::collection::vec(("[0-9a-f]{1,32}", "[^\n\r]{0,24}"), 0..8),
+            ) {
+                let rendered: String = ops.iter().map(|(id, desc)| format!("{id}\t{desc}\n")).collect();
+                let expected: Vec<JjOperation> =
+                    ops.into_iter().map(|(id, description)| JjOperation { id, description }).collect();
+                prop_assert_eq!(parse_operation_log(&rendered), expected);
+            }
+
+            #[test]
+            fn id_lines_read_back_in_order_whatever_blank_lines_sit_between(
+                ids in prop::collection::vec(("[0-9a-z]{1,40}", any::<bool>()), 0..8),
+            ) {
+                let mut rendered = String::new();
+                for (id, blank_after) in &ids {
+                    rendered.push_str(id);
+                    rendered.push('\n');
+                    if *blank_after {
+                        rendered.push('\n');
+                    }
+                }
+                let expected: Vec<String> = ids.into_iter().map(|(id, _)| id).collect();
+                prop_assert_eq!(parse_id_lines(&rendered), expected);
+            }
+        }
+    }
 }

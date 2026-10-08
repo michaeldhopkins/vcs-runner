@@ -219,4 +219,40 @@ mod tests {
         };
         assert_eq!(entry.summary(), "");
     }
+
+    mod properties {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        fn described(description: String) -> LogEntry {
+            LogEntry {
+                commit_id: String::new(),
+                change_id: String::new(),
+                author_name: String::new(),
+                author_email: String::new(),
+                description,
+                parents: vec![],
+                local_bookmarks: vec![],
+                remote_bookmarks: vec![],
+                working_copy: WorkingCopy::Background,
+                conflict: ConflictState::Clean,
+                content: ContentState::HasContent,
+            }
+        }
+
+        proptest! {
+            #[test]
+            fn the_summary_is_everything_before_the_first_line_break(
+                first in "[^\n\r]{0,20}",
+                break_ in prop::sample::select(vec!["\n", "\r\n"]),
+                rest in "(?s).{0,40}",
+            ) {
+                let entry = described(format!("{first}{break_}{rest}"));
+                prop_assert_eq!(entry.summary(), first.as_str());
+                let one_line = described(first.clone());
+                prop_assert_eq!(one_line.summary(), first.as_str());
+            }
+        }
+    }
 }
