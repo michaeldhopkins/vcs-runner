@@ -544,6 +544,198 @@ mod tests {
         }
     }
 
+    // --- every wrapper returns the command's real output ---
+    //
+    // Each wrapper is a one-line forward to procpilot, so the way one goes wrong
+    // is by dropping or replacing what the command printed. These run a real
+    // command whose output is known and compare it exactly.
+
+    const GENEROUS: Duration = Duration::from_secs(60);
+
+    fn not_cancelled() -> Arc<AtomicBool> {
+        Arc::new(AtomicBool::new(false))
+    }
+
+    fn trimmed(out: RunOutput) -> String {
+        out.stdout_lossy().trim().to_string()
+    }
+
+    /// A retry predicate that, on its first call, runs `fix` (so the next
+    /// attempt succeeds) and asks for a retry, then refuses any later retry so a
+    /// second failure surfaces. Returns the predicate and its call count.
+    fn fix_then_retry(
+        fix: impl Fn() + Send + Sync + 'static,
+    ) -> (impl Fn(&RunError) -> bool + Send + Sync + 'static, Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&calls);
+        let predicate = move |_: &RunError| {
+            if seen.fetch_add(1, Ordering::SeqCst) == 0 {
+                fix();
+                true
+            } else {
+                false
+            }
+        };
+        (predicate, calls)
+    }
+
+    fn call_count(calls: &std::sync::atomic::AtomicUsize) -> usize {
+        calls.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// For a git retry wrapper: `refs/heads/<branch>` does not exist yet, so the
+    /// first `rev-parse --verify` fails; the predicate then creates it at `main`.
+    fn git_branch_appears_on_retry(
+        dir: &Path,
+        branch: &str,
+    ) -> (impl Fn(&RunError) -> bool + Send + Sync + 'static, Arc<std::sync::atomic::AtomicUsize>) {
+        let dir = dir.to_path_buf();
+        let branch = branch.to_string();
+        fix_then_retry(move || {
+            git_ok(&dir, &["branch", &branch, "main"]);
+        })
+    }
+
+    #[test]
+    fn git_wrappers_return_the_commands_output() {
+        if !git_installed() {
+            return;
+        }
+        let tmp = merge_base_repo();
+        let d = tmp.path();
+        let main = git_ok(d, &["rev-parse", "main"]);
+        assert_eq!(main.len(), 40, "a full commit id: {main:?}");
+        let args = ["rev-parse", "main"];
+
+        assert_eq!(trimmed(run_git(d, &args).unwrap()), main);
+        assert_eq!(run_git_utf8(d, &args).unwrap(), main);
+        assert_eq!(trimmed(run_git_with_timeout(d, &args, GENEROUS).unwrap()), main);
+        assert_eq!(run_git_utf8_with_timeout(d, &args, GENEROUS).unwrap(), main);
+        assert_eq!(trimmed(run_git_cancellable(d, &args, not_cancelled()).unwrap()), main);
+        assert_eq!(run_git_utf8_cancellable(d, &args, not_cancelled()).unwrap(), main);
+    }
+
+    #[test]
+    fn git_retry_wrappers_return_the_output_of_the_attempt_that_succeeded() {
+        if !git_installed() {
+            return;
+        }
+        let tmp = merge_base_repo();
+        let d = tmp.path();
+        let main = git_ok(d, &["rev-parse", "main"]);
+        let verify = |branch: &str| ["rev-parse".to_string(), "--verify".into(), format!("refs/heads/{branch}")];
+
+        let args = verify("r1");
+        let (when, calls) = git_branch_appears_on_retry(d, "r1");
+        let out = run_git_with_retry(d, &args.each_ref().map(String::as_str), when).unwrap();
+        assert_eq!((trimmed(out), call_count(&calls)), (main.clone(), 1));
+
+        let args = verify("r2");
+        let (when, calls) = git_branch_appears_on_retry(d, "r2");
+        let out = run_git_utf8_with_retry(d, &args.each_ref().map(String::as_str), when).unwrap();
+        assert_eq!((out, call_count(&calls)), (main.clone(), 1));
+
+        let args = verify("r3");
+        let (when, calls) = git_branch_appears_on_retry(d, "r3");
+        let out =
+            run_git_with_retry_cancellable(d, &args.each_ref().map(String::as_str), when, not_cancelled()).unwrap();
+        assert_eq!((trimmed(out), call_count(&calls)), (main.clone(), 1));
+
+        let args = verify("r4");
+        let (when, calls) = git_branch_appears_on_retry(d, "r4");
+        let out = run_git_utf8_with_retry_cancellable(d, &args.each_ref().map(String::as_str), when, not_cancelled())
+            .unwrap();
+        assert_eq!((out, call_count(&calls)), (main, 1));
+    }
+
+    // A failure the predicate declines is returned, not retried.
+    #[test]
+    fn git_retry_wrapper_returns_the_error_the_predicate_declines() {
+        if !git_installed() {
+            return;
+        }
+        let tmp = merge_base_repo();
+        let (when, calls) = fix_then_retry(|| {});
+        let err = run_git_utf8_with_retry(tmp.path(), &["rev-parse", "--verify", "refs/heads/never"], when)
+            .expect_err("the branch never appears");
+        assert!(matches!(err, RunError::NonZeroExit { .. }), "got {err:?}");
+        assert_eq!(call_count(&calls), 2, "one retry, then the second failure is declined");
+    }
+
+    /// The full commit id `rev` resolves to, read without snapshotting.
+    fn jj_commit_id(repo: &TestRepo, rev: &str) -> String {
+        let out = repo.jj(&["--ignore-working-copy", "log", "-r", rev, "--no-graph", "-T", "commit_id"]);
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    #[test]
+    fn jj_wrappers_return_the_commands_output() {
+        if !jj_installed() {
+            return;
+        }
+        let repo = TestRepo::new(false);
+        repo.seed_two_commits();
+        let d = repo.path();
+        let parent = jj_commit_id(&repo, "@-");
+        assert_eq!(parent.len(), 40, "a full commit id: {parent:?}");
+        let args = ["log", "-r", "@-", "--no-graph", "-T", "commit_id"];
+
+        assert_eq!(trimmed(run_jj(d, &args).unwrap()), parent);
+        assert_eq!(run_jj_utf8(d, &args).unwrap(), parent);
+        assert_eq!(run_jj_utf8_ignore_wc(d, &args).unwrap(), parent);
+        assert_eq!(trimmed(run_jj_with_timeout(d, &args, GENEROUS).unwrap()), parent);
+        assert_eq!(run_jj_utf8_with_timeout(d, &args, GENEROUS).unwrap(), parent);
+        assert_eq!(trimmed(run_jj_cancellable(d, &args, not_cancelled()).unwrap()), parent);
+        assert_eq!(run_jj_utf8_cancellable(d, &args, not_cancelled()).unwrap(), parent);
+    }
+
+    #[test]
+    fn jj_retry_wrappers_return_the_output_of_the_attempt_that_succeeded() {
+        if !jj_installed() {
+            return;
+        }
+        let repo = TestRepo::new(false);
+        repo.seed_two_commits();
+        let d = repo.path();
+        let parent = jj_commit_id(&repo, "@-");
+
+        // `<bookmark>` does not exist yet, so the first `jj log` fails; the
+        // predicate then creates it at @-.
+        let bookmark_appears_on_retry = |name: &str| {
+            let dir = d.to_path_buf();
+            let name = name.to_string();
+            let fix = move || {
+                let ok = std::process::Command::new("jj")
+                    .args(["bookmark", "create", &name, "-r", "@-"])
+                    .current_dir(&dir)
+                    .output()
+                    .expect("jj bookmark create")
+                    .status
+                    .success();
+                assert!(ok, "jj bookmark create {name} failed");
+            };
+            fix_then_retry(fix)
+        };
+        let log = |name: &'static str| ["log", "-r", name, "--no-graph", "-T", "commit_id"];
+
+        let (when, calls) = bookmark_appears_on_retry("r1");
+        let out = run_jj_with_retry(d, &log("r1"), when).unwrap();
+        assert_eq!((trimmed(out), call_count(&calls)), (parent.clone(), 1));
+
+        let (when, calls) = bookmark_appears_on_retry("r2");
+        let out = run_jj_utf8_with_retry(d, &log("r2"), when).unwrap();
+        assert_eq!((out, call_count(&calls)), (parent.clone(), 1));
+
+        let (when, calls) = bookmark_appears_on_retry("r3");
+        let out = run_jj_with_retry_cancellable(d, &log("r3"), when, not_cancelled()).unwrap();
+        assert_eq!((trimmed(out), call_count(&calls)), (parent.clone(), 1));
+
+        let (when, calls) = bookmark_appears_on_retry("r4");
+        let out = run_jj_utf8_with_retry_cancellable(d, &log("r4"), when, not_cancelled()).unwrap();
+        assert_eq!((out, call_count(&calls)), (parent, 1));
+    }
+
     // --- jj operation-log helpers ---
 
     /// A throwaway jj repo (optionally colocated) with helpers for driving jj
