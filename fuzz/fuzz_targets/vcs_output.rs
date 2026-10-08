@@ -18,8 +18,7 @@ use libfuzzer_sys::fuzz_target;
 
 use vcs_runner::fuzz_api::{parse_id_lines, parse_operation_log};
 use vcs_runner::{
-    parse_bookmark_output, parse_diff_summary, parse_git_diff_name_status, parse_log_output,
-    parse_remote_list,
+    parse_bookmark_output, parse_diff_summary, parse_git_diff_name_status, parse_log_output, parse_remote_list,
 };
 
 fuzz_target!(|data: &[u8]| {
@@ -31,11 +30,7 @@ fuzz_target!(|data: &[u8]| {
     let non_empty = text.lines().filter(|l| !l.is_empty()).count();
 
     let log = parse_log_output(&text);
-    assert_eq!(
-        log.entries.len() + log.skipped.len(),
-        non_blank,
-        "every non-blank line is an entry or a skipped line"
-    );
+    assert_eq!(log.entries.len() + log.skipped.len(), non_blank, "every non-blank line is an entry or a skipped line");
 
     let bookmarks = parse_bookmark_output(&text);
     assert!(bookmarks.bookmarks.len() + bookmarks.skipped.len() <= non_blank);

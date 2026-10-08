@@ -157,9 +157,7 @@ fuzz_target!(|input: Input| {
         assert!(result.is_err(), "`..` out of a missing directory resolved to {result:?}");
         return;
     };
-    let expected = (1..=depth)
-        .rev()
-        .find_map(|d| input.markers[d - 1].backend().map(|b| (b, level(&tmp, d))));
+    let expected = (1..=depth).rev().find_map(|d| input.markers[d - 1].backend().map(|b| (b, level(&tmp, d))));
 
     match (expected, result) {
         (Some((backend, root)), Ok((got_backend, got_root))) => {

@@ -66,9 +66,7 @@ fn resolve(path: &Path, cwd: Option<&Path>) -> anyhow::Result<PathBuf> {
         return Ok(components.iter().collect());
     };
     let head: PathBuf = components[..=last_up].iter().collect();
-    let head = head
-        .canonicalize()
-        .map_err(|e| anyhow::anyhow!("cannot resolve {}: {e}", head.display()))?;
+    let head = head.canonicalize().map_err(|e| anyhow::anyhow!("cannot resolve {}: {e}", head.display()))?;
     Ok(components[last_up + 1..].iter().fold(head, |p, c| p.join(c)))
 }
 
@@ -176,8 +174,7 @@ mod tests {
     #[test]
     fn detect_git_worktree_file() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        fs::write(tmp.path().join(".git"), "gitdir: /other/.git/worktrees/wt")
-            .expect("write .git file");
+        fs::write(tmp.path().join(".git"), "gitdir: /other/.git/worktrees/wt").expect("write .git file");
         let (backend, _) = detect_vcs(tmp.path()).expect("should detect");
         assert_eq!(backend, VcsBackend::Git);
     }

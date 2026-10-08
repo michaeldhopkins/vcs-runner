@@ -2,7 +2,7 @@
 //!
 //! Run from a jj or git repository: cargo run --example basic
 
-use vcs_runner::{detect_vcs, jj_available, run_jj, run_git, RunError};
+use vcs_runner::{RunError, detect_vcs, jj_available, run_git, run_jj};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Detect what VCS manages this directory (walks ancestor dirs)

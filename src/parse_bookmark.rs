@@ -182,8 +182,7 @@ pub fn parse_bookmark_output(output: &str) -> BookmarkParseResult {
 fn remote_status(local: &RawBookmark, remote_targets: &[Option<String>]) -> RemoteStatus {
     if remote_targets.iter().any(|t| t.as_deref() != Some(local.commit_id.as_str())) {
         RemoteStatus::Unsynced
-    } else if !remote_targets.is_empty()
-        || local.remote_refs.iter().any(|(n, r)| *n == local.name && is_real_remote(r))
+    } else if !remote_targets.is_empty() || local.remote_refs.iter().any(|(n, r)| *n == local.name && is_real_remote(r))
     {
         RemoteStatus::Synced
     } else {
@@ -222,7 +221,10 @@ mod tests {
 
     #[test]
     fn a_bookmark_with_no_remote_is_local() {
-        assert_eq!(statuses(&local("feature", "a1", r#"["feature","git"]"#)), vec![("feature".into(), RemoteStatus::Local)]);
+        assert_eq!(
+            statuses(&local("feature", "a1", r#"["feature","git"]"#)),
+            vec![("feature".into(), RemoteStatus::Local)]
+        );
     }
 
     #[test]
@@ -253,7 +255,8 @@ mod tests {
         // `--all-remotes` prints synced remote bookmarks too.
         let out = [local("feature", "b2", ""), remote("feature", "origin", "b2")].join("\n");
         assert_eq!(statuses(&out), vec![("feature".into(), RemoteStatus::Synced)]);
-        let out = [local("feature", "b2", ""), remote("feature", "origin", "b2"), remote("feature", "up", "a1")].join("\n");
+        let out =
+            [local("feature", "b2", ""), remote("feature", "origin", "b2"), remote("feature", "up", "a1")].join("\n");
         assert_eq!(statuses(&out), vec![("feature".into(), RemoteStatus::Unsynced)], "one remote elsewhere");
     }
 
@@ -333,7 +336,9 @@ mod tests {
 
     #[test]
     fn template_names_every_key_the_parser_reads() {
-        for key in ["\"name\":", "\"remote\":", "\"commitId\":", "\"changeId\":", "\"localBookmarks\":", "\"remoteRefs\":"] {
+        for key in
+            ["\"name\":", "\"remote\":", "\"commitId\":", "\"changeId\":", "\"localBookmarks\":", "\"remoteRefs\":"]
+        {
             assert!(BOOKMARK_TEMPLATE.contains(key), "{key}");
         }
     }

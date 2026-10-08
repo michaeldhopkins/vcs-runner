@@ -57,21 +57,13 @@ pub fn run_git_utf8(repo_path: &Path, args: &[&str]) -> Result<String, RunError>
 }
 
 /// Run a `jj` command with a timeout, returning trimmed stdout as a `String`.
-pub fn run_jj_utf8_with_timeout(
-    repo_path: &Path,
-    args: &[&str],
-    timeout: Duration,
-) -> Result<String, RunError> {
+pub fn run_jj_utf8_with_timeout(repo_path: &Path, args: &[&str], timeout: Duration) -> Result<String, RunError> {
     let out = run_jj_with_timeout(repo_path, args, timeout)?;
     Ok(out.stdout_lossy().trim().to_string())
 }
 
 /// Run a `git` command with a timeout, returning trimmed stdout as a `String`.
-pub fn run_git_utf8_with_timeout(
-    repo_path: &Path,
-    args: &[&str],
-    timeout: Duration,
-) -> Result<String, RunError> {
+pub fn run_git_utf8_with_timeout(repo_path: &Path, args: &[&str], timeout: Duration) -> Result<String, RunError> {
     let out = run_git_with_timeout(repo_path, args, timeout)?;
     Ok(out.stdout_lossy().trim().to_string())
 }
@@ -97,29 +89,13 @@ pub fn run_git_utf8_with_retry(
 }
 
 /// Run a `jj` command with a timeout.
-pub fn run_jj_with_timeout(
-    repo_path: &Path,
-    args: &[&str],
-    timeout: Duration,
-) -> Result<RunOutput, RunError> {
-    Cmd::new("jj")
-        .in_dir(repo_path)
-        .args(args)
-        .timeout(timeout)
-        .run()
+pub fn run_jj_with_timeout(repo_path: &Path, args: &[&str], timeout: Duration) -> Result<RunOutput, RunError> {
+    Cmd::new("jj").in_dir(repo_path).args(args).timeout(timeout).run()
 }
 
 /// Run a `git` command with a timeout.
-pub fn run_git_with_timeout(
-    repo_path: &Path,
-    args: &[&str],
-    timeout: Duration,
-) -> Result<RunOutput, RunError> {
-    Cmd::new("git")
-        .in_dir(repo_path)
-        .args(args)
-        .timeout(timeout)
-        .run()
+pub fn run_git_with_timeout(repo_path: &Path, args: &[&str], timeout: Duration) -> Result<RunOutput, RunError> {
+    Cmd::new("git").in_dir(repo_path).args(args).timeout(timeout).run()
 }
 
 /// Run a `jj` command with retry on transient errors.
@@ -128,11 +104,7 @@ pub fn run_jj_with_retry(
     args: &[&str],
     is_transient: impl Fn(&RunError) -> bool + Send + Sync + 'static,
 ) -> Result<RunOutput, RunError> {
-    Cmd::new("jj")
-        .in_dir(repo_path)
-        .args(args)
-        .retry(RetryPolicy::default().when(is_transient))
-        .run()
+    Cmd::new("jj").in_dir(repo_path).args(args).retry(RetryPolicy::default().when(is_transient)).run()
 }
 
 /// Run a `git` command with retry on transient errors.
@@ -141,11 +113,7 @@ pub fn run_git_with_retry(
     args: &[&str],
     is_transient: impl Fn(&RunError) -> bool + Send + Sync + 'static,
 ) -> Result<RunOutput, RunError> {
-    Cmd::new("git")
-        .in_dir(repo_path)
-        .args(args)
-        .retry(RetryPolicy::default().when(is_transient))
-        .run()
+    Cmd::new("git").in_dir(repo_path).args(args).retry(RetryPolicy::default().when(is_transient)).run()
 }
 
 /// Run a `jj` command with caller-driven cancellation.
@@ -154,48 +122,24 @@ pub fn run_git_with_retry(
 /// SIGKILL after the procpilot default grace) and returns
 /// [`RunError::Cancelled`]. If `cancel` is already set before spawn,
 /// returns `Cancelled` without starting the child.
-pub fn run_jj_cancellable(
-    repo_path: &Path,
-    args: &[&str],
-    cancel: Arc<AtomicBool>,
-) -> Result<RunOutput, RunError> {
-    Cmd::new("jj")
-        .in_dir(repo_path)
-        .args(args)
-        .cancel(cancel)
-        .run()
+pub fn run_jj_cancellable(repo_path: &Path, args: &[&str], cancel: Arc<AtomicBool>) -> Result<RunOutput, RunError> {
+    Cmd::new("jj").in_dir(repo_path).args(args).cancel(cancel).run()
 }
 
 /// Run a `git` command with caller-driven cancellation. See
 /// [`run_jj_cancellable`] for semantics.
-pub fn run_git_cancellable(
-    repo_path: &Path,
-    args: &[&str],
-    cancel: Arc<AtomicBool>,
-) -> Result<RunOutput, RunError> {
-    Cmd::new("git")
-        .in_dir(repo_path)
-        .args(args)
-        .cancel(cancel)
-        .run()
+pub fn run_git_cancellable(repo_path: &Path, args: &[&str], cancel: Arc<AtomicBool>) -> Result<RunOutput, RunError> {
+    Cmd::new("git").in_dir(repo_path).args(args).cancel(cancel).run()
 }
 
 /// Run a `jj` command with cancellation, returning trimmed stdout as a `String`.
-pub fn run_jj_utf8_cancellable(
-    repo_path: &Path,
-    args: &[&str],
-    cancel: Arc<AtomicBool>,
-) -> Result<String, RunError> {
+pub fn run_jj_utf8_cancellable(repo_path: &Path, args: &[&str], cancel: Arc<AtomicBool>) -> Result<String, RunError> {
     let out = run_jj_cancellable(repo_path, args, cancel)?;
     Ok(out.stdout_lossy().trim().to_string())
 }
 
 /// Run a `git` command with cancellation, returning trimmed stdout as a `String`.
-pub fn run_git_utf8_cancellable(
-    repo_path: &Path,
-    args: &[&str],
-    cancel: Arc<AtomicBool>,
-) -> Result<String, RunError> {
+pub fn run_git_utf8_cancellable(repo_path: &Path, args: &[&str], cancel: Arc<AtomicBool>) -> Result<String, RunError> {
     let out = run_git_cancellable(repo_path, args, cancel)?;
     Ok(out.stdout_lossy().trim().to_string())
 }
@@ -211,12 +155,7 @@ pub fn run_jj_with_retry_cancellable(
     is_transient: impl Fn(&RunError) -> bool + Send + Sync + 'static,
     cancel: Arc<AtomicBool>,
 ) -> Result<RunOutput, RunError> {
-    Cmd::new("jj")
-        .in_dir(repo_path)
-        .args(args)
-        .retry(RetryPolicy::default().when(is_transient))
-        .cancel(cancel)
-        .run()
+    Cmd::new("jj").in_dir(repo_path).args(args).retry(RetryPolicy::default().when(is_transient)).cancel(cancel).run()
 }
 
 /// Run a `git` command with retry on transient errors plus caller-driven cancellation.
@@ -227,12 +166,7 @@ pub fn run_git_with_retry_cancellable(
     is_transient: impl Fn(&RunError) -> bool + Send + Sync + 'static,
     cancel: Arc<AtomicBool>,
 ) -> Result<RunOutput, RunError> {
-    Cmd::new("git")
-        .in_dir(repo_path)
-        .args(args)
-        .retry(RetryPolicy::default().when(is_transient))
-        .cancel(cancel)
-        .run()
+    Cmd::new("git").in_dir(repo_path).args(args).retry(RetryPolicy::default().when(is_transient)).cancel(cancel).run()
 }
 
 /// Run a `jj` command with retry + cancellation, returning trimmed stdout as a `String`.
@@ -262,18 +196,9 @@ pub fn run_git_utf8_with_retry_cancellable(
 /// Uses the revset `latest(::(a) & ::(b))` — the most recent common ancestor
 /// of the two revisions. Returns `Ok(None)` when the revisions have no common
 /// ancestor.
-pub fn jj_merge_base(
-    repo_path: &Path,
-    a: &str,
-    b: &str,
-) -> Result<Option<String>, RunError> {
+pub fn jj_merge_base(repo_path: &Path, a: &str, b: &str) -> Result<Option<String>, RunError> {
     let revset = format!("latest(::({a}) & ::({b}))");
-    let id = run_jj_utf8(
-        repo_path,
-        &[
-            "log", "-r", &revset, "--no-graph", "--limit", "1", "-T", "commit_id",
-        ],
-    )?;
+    let id = run_jj_utf8(repo_path, &["log", "-r", &revset, "--no-graph", "--limit", "1", "-T", "commit_id"])?;
     Ok(if id.is_empty() { None } else { Some(id) })
 }
 
@@ -303,10 +228,7 @@ pub fn jj_current_operation_id(repo_path: &Path) -> Result<String, RunError> {
 ///
 /// Used to spot a `"reconcile divergent operations"` entry (the signature of a
 /// concurrent writer) and to walk back to a clean operation for recovery.
-pub fn jj_operation_log(
-    repo_path: &Path,
-    limit: usize,
-) -> Result<Vec<crate::JjOperation>, RunError> {
+pub fn jj_operation_log(repo_path: &Path, limit: usize) -> Result<Vec<crate::JjOperation>, RunError> {
     const TEMPLATE: &str = r#"id ++ "\t" ++ description.first_line() ++ "\n""#;
     let limit_str = limit.to_string();
     let mut args: Vec<&str> = vec!["op", "log", "--no-graph", "-T", TEMPLATE];
@@ -355,19 +277,12 @@ pub fn jj_is_divergent_at_operation(repo_path: &Path, op_id: &str) -> Result<boo
 /// it names — before a workspace or bookmark existed — resolves to an empty vec
 /// rather than erroring, letting a caller distinguish "absent here" from a real
 /// failure. Working-copy-agnostic: inspecting a past operation must not snapshot.
-pub fn jj_revset_at_operation(
-    repo_path: &Path,
-    revset: &str,
-    op_id: &str,
-) -> Result<Vec<String>, RunError> {
+pub fn jj_revset_at_operation(repo_path: &Path, revset: &str, op_id: &str) -> Result<Vec<String>, RunError> {
     // `--at-operation` is a global flag and must precede the subcommand.
     let wrapped = format!("present({revset})");
     let out = run_jj_utf8_ignore_wc(
         repo_path,
-        &[
-            "--at-operation", op_id,
-            "log", "-r", &wrapped, "--no-graph", "-T", r#"commit_id ++ "\n""#,
-        ],
+        &["--at-operation", op_id, "log", "-r", &wrapped, "--no-graph", "-T", r#"commit_id ++ "\n""#],
     )?;
     Ok(parse_id_lines(&out))
 }
@@ -390,11 +305,7 @@ pub fn jj_revset_at_operation(
 /// [`jj_revset_at_operation`] over an explicit op list from [`jj_operation_log`]
 /// instead. Working-copy-agnostic. Cost is one `jj` invocation per operation
 /// walked: jj offers no batched or structured op-diff, so this is inherent.
-pub fn jj_revset_history(
-    repo_path: &Path,
-    revset: &str,
-    limit: usize,
-) -> Result<Vec<String>, RunError> {
+pub fn jj_revset_history(repo_path: &Path, revset: &str, limit: usize) -> Result<Vec<String>, RunError> {
     let ops = jj_operation_log(repo_path, limit)?;
     let mut seen = std::collections::HashSet::new();
     let mut history = Vec::new();
@@ -426,11 +337,7 @@ pub fn jj_op_restore(repo_path: &Path, op_id: &str) -> Result<(), RunError> {
 ///
 /// Returns `Ok(None)` when git reports no common ancestor (exit code 1 with
 /// empty output), `Ok(Some(sha))` when found, `Err(_)` for actual failures.
-pub fn git_merge_base(
-    repo_path: &Path,
-    a: &str,
-    b: &str,
-) -> Result<Option<String>, RunError> {
+pub fn git_merge_base(repo_path: &Path, a: &str, b: &str) -> Result<Option<String>, RunError> {
     match run_git_utf8(repo_path, &["merge-base", a, b]) {
         Ok(id) => Ok(if id.is_empty() { None } else { Some(id) }),
         Err(RunError::NonZeroExit { status, .. }) if status.code() == Some(1) => Ok(None),
@@ -495,8 +402,8 @@ mod tests {
     fn run_jj_cancellable_short_circuits_on_preset_flag() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let cancel = Arc::new(AtomicBool::new(true));
-        let err = run_jj_cancellable(tmp.path(), &["status"], cancel)
-            .expect_err("preset cancel flag must return error");
+        let err =
+            run_jj_cancellable(tmp.path(), &["status"], cancel).expect_err("preset cancel flag must return error");
         assert!(err.is_cancelled(), "expected Cancelled, got: {err:?}");
     }
 
@@ -504,8 +411,8 @@ mod tests {
     fn run_git_cancellable_short_circuits_on_preset_flag() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let cancel = Arc::new(AtomicBool::new(true));
-        let err = run_git_cancellable(tmp.path(), &["status"], cancel)
-            .expect_err("preset cancel flag must return error");
+        let err =
+            run_git_cancellable(tmp.path(), &["status"], cancel).expect_err("preset cancel flag must return error");
         assert!(err.is_cancelled(), "expected Cancelled, got: {err:?}");
     }
 
@@ -513,13 +420,8 @@ mod tests {
     fn run_jj_with_retry_cancellable_short_circuits_on_preset_flag() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let cancel = Arc::new(AtomicBool::new(true));
-        let err = run_jj_with_retry_cancellable(
-            tmp.path(),
-            &["status"],
-            is_transient_error,
-            cancel,
-        )
-        .expect_err("preset cancel flag must return error before retry");
+        let err = run_jj_with_retry_cancellable(tmp.path(), &["status"], is_transient_error, cancel)
+            .expect_err("preset cancel flag must return error before retry");
         assert!(err.is_cancelled(), "expected Cancelled, got: {err:?}");
     }
 
@@ -527,8 +429,8 @@ mod tests {
     fn run_jj_utf8_cancellable_short_circuits_on_preset_flag() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let cancel = Arc::new(AtomicBool::new(true));
-        let err = run_jj_utf8_cancellable(tmp.path(), &["status"], cancel)
-            .expect_err("preset cancel flag must return error");
+        let err =
+            run_jj_utf8_cancellable(tmp.path(), &["status"], cancel).expect_err("preset cancel flag must return error");
         assert!(err.is_cancelled(), "expected Cancelled, got: {err:?}");
     }
 
@@ -545,13 +447,8 @@ mod tests {
     fn run_git_with_retry_cancellable_short_circuits_on_preset_flag() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let cancel = Arc::new(AtomicBool::new(true));
-        let err = run_git_with_retry_cancellable(
-            tmp.path(),
-            &["status"],
-            is_transient_error,
-            cancel,
-        )
-        .expect_err("preset cancel flag must return error before retry");
+        let err = run_git_with_retry_cancellable(tmp.path(), &["status"], is_transient_error, cancel)
+            .expect_err("preset cancel flag must return error before retry");
         assert!(err.is_cancelled(), "expected Cancelled, got: {err:?}");
     }
 
@@ -559,13 +456,8 @@ mod tests {
     fn run_jj_utf8_with_retry_cancellable_short_circuits_on_preset_flag() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let cancel = Arc::new(AtomicBool::new(true));
-        let err = run_jj_utf8_with_retry_cancellable(
-            tmp.path(),
-            &["status"],
-            is_transient_error,
-            cancel,
-        )
-        .expect_err("preset cancel flag must return error before retry");
+        let err = run_jj_utf8_with_retry_cancellable(tmp.path(), &["status"], is_transient_error, cancel)
+            .expect_err("preset cancel flag must return error before retry");
         assert!(err.is_cancelled(), "expected Cancelled, got: {err:?}");
     }
 
@@ -573,13 +465,8 @@ mod tests {
     fn run_git_utf8_with_retry_cancellable_short_circuits_on_preset_flag() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let cancel = Arc::new(AtomicBool::new(true));
-        let err = run_git_utf8_with_retry_cancellable(
-            tmp.path(),
-            &["status"],
-            is_transient_error,
-            cancel,
-        )
-        .expect_err("preset cancel flag must return error before retry");
+        let err = run_git_utf8_with_retry_cancellable(tmp.path(), &["status"], is_transient_error, cancel)
+            .expect_err("preset cancel flag must return error before retry");
         assert!(err.is_cancelled(), "expected Cancelled, got: {err:?}");
     }
 
@@ -629,10 +516,7 @@ mod tests {
         }
         let tmp = merge_base_repo();
         let first = git_ok(tmp.path(), &["rev-parse", "main~1"]);
-        assert_eq!(
-            git_merge_base(tmp.path(), "main", "main~1").unwrap(),
-            Some(first)
-        );
+        assert_eq!(git_merge_base(tmp.path(), "main", "main~1").unwrap(), Some(first));
     }
 
     // git exits 1 with no output when the histories share no commit.
@@ -697,11 +581,7 @@ mod tests {
                 .expect("jj command")
         }
         fn git(&self, args: &[&str]) -> std::process::Output {
-            std::process::Command::new("git")
-                .args(args)
-                .current_dir(self.path())
-                .output()
-                .expect("git command")
+            std::process::Command::new("git").args(args).current_dir(self.path()).output().expect("git command")
         }
         fn git_out(&self, args: &[&str]) -> String {
             String::from_utf8_lossy(&self.git(args).stdout).trim().to_string()
@@ -803,9 +683,7 @@ mod tests {
         std::fs::write(path.join("f.txt"), "a\nwip\n").unwrap();
         let wc_commit = |repo: &TestRepo| {
             String::from_utf8_lossy(
-                &repo
-                    .jj(&["--ignore-working-copy", "log", "-r", "@", "--no-graph", "-T", "commit_id"])
-                    .stdout,
+                &repo.jj(&["--ignore-working-copy", "log", "-r", "@", "--no-graph", "-T", "commit_id"]).stdout,
             )
             .trim()
             .to_string()
@@ -842,9 +720,7 @@ mod tests {
         std::fs::write(path.join("f.txt"), "a\nwip\n").unwrap();
         let wc = || {
             String::from_utf8_lossy(
-                &repo
-                    .jj(&["--ignore-working-copy", "log", "-r", "@", "--no-graph", "-T", "commit_id"])
-                    .stdout,
+                &repo.jj(&["--ignore-working-copy", "log", "-r", "@", "--no-graph", "-T", "commit_id"]).stdout,
             )
             .trim()
             .to_string()
@@ -894,11 +770,10 @@ mod tests {
     // not: jj re-exports refs to git as part of the restore operation.
 
     fn assert_colocated_consistent(repo: &TestRepo, bookmark: &str) {
-        let jj_commit = String::from_utf8_lossy(
-            &repo.jj(&["log", "-r", bookmark, "--no-graph", "-T", "commit_id"]).stdout,
-        )
-        .trim()
-        .to_string();
+        let jj_commit =
+            String::from_utf8_lossy(&repo.jj(&["log", "-r", bookmark, "--no-graph", "-T", "commit_id"]).stdout)
+                .trim()
+                .to_string();
         assert_eq!(
             jj_commit,
             repo.git_out(&["rev-parse", bookmark]),
@@ -911,13 +786,8 @@ mod tests {
         // reports it missing, op restore or not. That one line is jj's, not a defect.
         const EMPTY_TREE_MISSING: &str = "missing tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904";
         let fsck = repo.git(&["fsck", "--no-dangling"]);
-        let report = format!(
-            "{}{}",
-            String::from_utf8_lossy(&fsck.stdout),
-            String::from_utf8_lossy(&fsck.stderr)
-        );
-        let only_empty_tree =
-            !report.trim().is_empty() && report.lines().all(|l| l.trim() == EMPTY_TREE_MISSING);
+        let report = format!("{}{}", String::from_utf8_lossy(&fsck.stdout), String::from_utf8_lossy(&fsck.stderr));
+        let only_empty_tree = !report.trim().is_empty() && report.lines().all(|l| l.trim() == EMPTY_TREE_MISSING);
         assert!(fsck.status.success() || only_empty_tree, "git fsck: {report}");
         assert!(repo.git(&["status"]).status.success(), "git status must work");
     }

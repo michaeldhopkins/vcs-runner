@@ -26,10 +26,7 @@ pub fn read_working_file(repo_path: &Path, rel_path: &str) -> std::io::Result<Op
 }
 
 /// Bytes variant of [`read_working_file`], for image/binary handling.
-pub fn read_working_file_bytes(
-    repo_path: &Path,
-    rel_path: &str,
-) -> std::io::Result<Option<Vec<u8>>> {
+pub fn read_working_file_bytes(repo_path: &Path, rel_path: &str) -> std::io::Result<Option<Vec<u8>>> {
     match std::fs::read(repo_path.join(rel_path)) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -63,10 +60,7 @@ mod tests {
     fn reads_present_file_and_none_for_absent() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
-        assert_eq!(
-            read_working_file(dir.path(), "a.txt").unwrap().as_deref(),
-            Some("hello\n")
-        );
+        assert_eq!(read_working_file(dir.path(), "a.txt").unwrap().as_deref(), Some("hello\n"));
         assert_eq!(read_working_file(dir.path(), "missing.txt").unwrap(), None);
     }
 
@@ -74,10 +68,7 @@ mod tests {
     fn bytes_variant_round_trips_and_none_for_absent() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("b.bin"), [0u8, 1, 2, 255]).unwrap();
-        assert_eq!(
-            read_working_file_bytes(dir.path(), "b.bin").unwrap(),
-            Some(vec![0, 1, 2, 255])
-        );
+        assert_eq!(read_working_file_bytes(dir.path(), "b.bin").unwrap(), Some(vec![0, 1, 2, 255]));
         assert_eq!(read_working_file_bytes(dir.path(), "nope").unwrap(), None);
     }
 

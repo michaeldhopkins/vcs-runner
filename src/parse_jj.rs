@@ -2,9 +2,7 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
-use crate::types::{
-    ConflictState, ContentState, FileChange, FileChangeKind, GitRemote, LogEntry, WorkingCopy,
-};
+use crate::types::{ConflictState, ContentState, FileChange, FileChangeKind, GitRemote, LogEntry, WorkingCopy};
 
 /// jj template for `jj log` producing line-delimited JSON entries.
 ///
@@ -69,21 +67,9 @@ pub fn parse_log_output(output: &str) -> LogParseResult {
             }
         };
 
-        let working_copy = if raw.is_working_copy == "true" {
-            WorkingCopy::Current
-        } else {
-            WorkingCopy::Background
-        };
-        let conflict = if raw.conflict == "true" {
-            ConflictState::Conflicted
-        } else {
-            ConflictState::Clean
-        };
-        let content = if raw.empty == "true" {
-            ContentState::Empty
-        } else {
-            ContentState::HasContent
-        };
+        let working_copy = if raw.is_working_copy == "true" { WorkingCopy::Current } else { WorkingCopy::Background };
+        let conflict = if raw.conflict == "true" { ConflictState::Conflicted } else { ConflictState::Clean };
+        let content = if raw.empty == "true" { ContentState::Empty } else { ContentState::HasContent };
 
         entries.push(LogEntry {
             commit_id: raw.commit_id,
@@ -92,16 +78,8 @@ pub fn parse_log_output(output: &str) -> LogParseResult {
             author_email: raw.author_email,
             description: raw.description,
             parents: raw.parents.into_iter().filter(|p| !p.is_empty()).collect(),
-            local_bookmarks: raw
-                .local_bookmarks
-                .into_iter()
-                .filter(|b| !b.is_empty())
-                .collect(),
-            remote_bookmarks: raw
-                .remote_bookmarks
-                .into_iter()
-                .filter(|b| !b.is_empty())
-                .collect(),
+            local_bookmarks: raw.local_bookmarks.into_iter().filter(|b| !b.is_empty()).collect(),
+            remote_bookmarks: raw.remote_bookmarks.into_iter().filter(|b| !b.is_empty()).collect(),
             working_copy,
             conflict,
             content,
@@ -129,19 +107,14 @@ pub fn parse_remote_list(output: &str) -> Vec<GitRemote> {
 
 /// The two paths of a rename or copy in `jj diff --summary`.
 fn split_rename(rest: &str) -> Option<(String, String)> {
-    expand_brace_rename(rest).or_else(|| {
-        rest.split_once(" -> ").map(|(from, to)| (from.to_string(), to.to_string()))
-    })
+    expand_brace_rename(rest).or_else(|| rest.split_once(" -> ").map(|(from, to)| (from.to_string(), to.to_string())))
 }
 
 /// `prefix/{old => new}/suffix`, where the braces open at the start or after a `/` and
 /// close at the end or before one. Either side of ` => ` may be empty, as in
 /// `g/{e => }/x.rs`, and then the slashes around it collapse to one.
 fn expand_brace_rename(s: &str) -> Option<(String, String)> {
-    let open = s
-        .char_indices()
-        .find(|&(i, c)| c == '{' && (i == 0 || s[..i].ends_with('/')))?
-        .0;
+    let open = s.char_indices().find(|&(i, c)| c == '{' && (i == 0 || s[..i].ends_with('/')))?.0;
     let (prefix, tail) = (&s[..open], &s[open + 1..]);
     let close = tail
         .char_indices()
@@ -199,18 +172,10 @@ pub fn parse_diff_summary(output: &str) -> Vec<FileChange> {
         match kind {
             FileChangeKind::Renamed | FileChangeKind::Copied => {
                 if let Some((from, to)) = split_rename(rest) {
-                    changes.push(FileChange {
-                        kind,
-                        path: PathBuf::from(to),
-                        from_path: Some(PathBuf::from(from)),
-                    });
+                    changes.push(FileChange { kind, path: PathBuf::from(to), from_path: Some(PathBuf::from(from)) });
                 }
             }
-            _ => changes.push(FileChange {
-                kind,
-                path: PathBuf::from(rest),
-                from_path: None,
-            }),
+            _ => changes.push(FileChange { kind, path: PathBuf::from(rest), from_path: None }),
         }
     }
     changes

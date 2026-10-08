@@ -18,10 +18,8 @@
 
 /// Target names from `fuzz/Cargo.toml` — every `[[bin]]`'s `name`.
 fn declared_targets() -> Vec<String> {
-    let src = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fuzz/Cargo.toml"),
-    )
-    .expect("read fuzz/Cargo.toml");
+    let src = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fuzz/Cargo.toml"))
+        .expect("read fuzz/Cargo.toml");
 
     let mut out = Vec::new();
     let mut in_bin = false;
@@ -55,20 +53,15 @@ fn matrix_targets(name: &str) -> Vec<String> {
         .find(|l| l.starts_with("target: ["))
         .unwrap_or_else(|| panic!("{name} declares no `target: [...]` matrix"));
 
-    let inner = line
-        .trim_start_matches("target: [")
-        .trim_end_matches(']');
-    let mut out: Vec<String> =
-        inner.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    let inner = line.trim_start_matches("target: [").trim_end_matches(']');
+    let mut out: Vec<String> = inner.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
     out.sort();
     out
 }
 
 fn workflow(name: &str) -> String {
-    std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows").join(name),
-    )
-    .unwrap_or_else(|e| panic!("read {name}: {e}"))
+    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows").join(name))
+        .unwrap_or_else(|e| panic!("read {name}: {e}"))
 }
 
 /// Every `key:` / `restore-keys:` value in a workflow that names a corpus cache.
@@ -182,8 +175,9 @@ fn template_keys() -> Vec<String> {
 fn the_vcs_output_dictionary_holds_every_template_key() {
     let keys = template_keys();
     assert!(keys.len() >= 12, "only {} keys found in the templates: the extraction is wrong: {keys:?}", keys.len());
-    let dict = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fuzz/dict/vcs_output.dict"))
-        .expect("read fuzz/dict/vcs_output.dict");
+    let dict =
+        std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fuzz/dict/vcs_output.dict"))
+            .expect("read fuzz/dict/vcs_output.dict");
     let missing: Vec<&String> =
         keys.iter().filter(|k| !dict.lines().any(|l| l.trim() == format!(r#""\"{k}\":""#))).collect();
     assert!(

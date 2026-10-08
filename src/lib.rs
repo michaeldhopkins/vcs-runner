@@ -25,42 +25,36 @@ mod worktree;
 
 pub use detect::{VcsBackend, detect_vcs};
 pub use error::RunError;
+#[cfg(feature = "jj-parse")]
+pub use parse_bookmark::{BOOKMARK_TEMPLATE, BookmarkParseResult, parse_bookmark_output};
 #[cfg(feature = "git-parse")]
 pub use parse_git::parse_git_diff_name_status;
 #[cfg(feature = "jj-parse")]
-pub use parse_bookmark::{BOOKMARK_TEMPLATE, BookmarkParseResult, parse_bookmark_output};
-#[cfg(feature = "jj-parse")]
-pub use parse_jj::{
-    LOG_TEMPLATE, LogParseResult,
-    parse_diff_summary, parse_log_output, parse_remote_list,
-};
+pub use parse_jj::{LOG_TEMPLATE, LogParseResult, parse_diff_summary, parse_log_output, parse_remote_list};
 pub use runner::{
-    git_merge_base, is_transient_error, jj_current_operation_id, jj_divergent_change_ids,
-    jj_is_divergent_at_operation, jj_merge_base, jj_op_restore, jj_operation_log,
-    jj_revset_at_operation, jj_revset_history, run_git,
+    git_merge_base, is_transient_error, jj_current_operation_id, jj_divergent_change_ids, jj_is_divergent_at_operation,
+    jj_merge_base, jj_op_restore, jj_operation_log, jj_revset_at_operation, jj_revset_history, run_git,
     run_git_cancellable, run_git_utf8, run_git_utf8_cancellable, run_git_utf8_with_retry,
-    run_git_utf8_with_retry_cancellable, run_git_utf8_with_timeout, run_git_with_retry,
-    run_git_with_retry_cancellable, run_git_with_timeout, run_jj, run_jj_cancellable, run_jj_utf8,
-    run_jj_utf8_cancellable, run_jj_utf8_ignore_wc, run_jj_utf8_with_retry,
-    run_jj_utf8_with_retry_cancellable, run_jj_utf8_with_timeout, run_jj_with_retry,
+    run_git_utf8_with_retry_cancellable, run_git_utf8_with_timeout, run_git_with_retry, run_git_with_retry_cancellable,
+    run_git_with_timeout, run_jj, run_jj_cancellable, run_jj_utf8, run_jj_utf8_cancellable, run_jj_utf8_ignore_wc,
+    run_jj_utf8_with_retry, run_jj_utf8_with_retry_cancellable, run_jj_utf8_with_timeout, run_jj_with_retry,
     run_jj_with_retry_cancellable, run_jj_with_timeout,
 };
 
 // Re-export procpilot's generic subprocess API so vcs-runner consumers have
 // one dependency. Prefer these for anything non-VCS-specific.
 pub use procpilot::{
-    Cmd, CmdDisplay, DefaultRunner, Redirection, RetryPolicy, RunOutput, Runner,
-    STREAM_SUFFIX_SIZE, SpawnedProcess, StdinData, binary_available, binary_version,
-    default_transient,
+    Cmd, CmdDisplay, DefaultRunner, Redirection, RetryPolicy, RunOutput, Runner, STREAM_SUFFIX_SIZE, SpawnedProcess,
+    StdinData, binary_available, binary_version, default_transient,
 };
 
 pub use worktree::{read_working_file, read_working_file_bytes, working_file_is_binary};
 
 pub use types::JjOperation;
-#[cfg(any(feature = "jj-parse", feature = "git-parse"))]
-pub use types::{FileChange, FileChangeKind};
 #[cfg(feature = "jj-parse")]
 pub use types::{Bookmark, ConflictState, ContentState, GitRemote, LogEntry, RemoteStatus, WorkingCopy};
+#[cfg(any(feature = "jj-parse", feature = "git-parse"))]
+pub use types::{FileChange, FileChangeKind};
 
 /// Common types and helpers for everyday VCS subprocess work.
 ///
@@ -78,17 +72,15 @@ pub mod prelude {
     pub use procpilot::prelude::*;
 
     pub use crate::{
-        VcsBackend, detect_vcs, git_available, git_merge_base, git_version, is_transient_error,
-        jj_available, jj_current_operation_id, jj_divergent_change_ids,
-        jj_is_divergent_at_operation, jj_merge_base, jj_op_restore, jj_operation_log,
-        jj_revset_at_operation, jj_revset_history, jj_version,
-        run_git, run_git_cancellable, run_git_utf8, run_git_utf8_cancellable,
-        run_git_utf8_with_retry, run_git_utf8_with_retry_cancellable, run_git_utf8_with_timeout,
-        run_git_with_retry, run_git_with_retry_cancellable, run_git_with_timeout, run_jj,
-        run_jj_cancellable, run_jj_utf8, run_jj_utf8_cancellable, run_jj_utf8_ignore_wc,
-        run_jj_utf8_with_retry, run_jj_utf8_with_retry_cancellable, run_jj_utf8_with_timeout,
-        run_jj_with_retry, run_jj_with_retry_cancellable, run_jj_with_timeout,
-        read_working_file, read_working_file_bytes, working_file_is_binary,
+        VcsBackend, detect_vcs, git_available, git_merge_base, git_version, is_transient_error, jj_available,
+        jj_current_operation_id, jj_divergent_change_ids, jj_is_divergent_at_operation, jj_merge_base, jj_op_restore,
+        jj_operation_log, jj_revset_at_operation, jj_revset_history, jj_version, read_working_file,
+        read_working_file_bytes, run_git, run_git_cancellable, run_git_utf8, run_git_utf8_cancellable,
+        run_git_utf8_with_retry, run_git_utf8_with_retry_cancellable, run_git_utf8_with_timeout, run_git_with_retry,
+        run_git_with_retry_cancellable, run_git_with_timeout, run_jj, run_jj_cancellable, run_jj_utf8,
+        run_jj_utf8_cancellable, run_jj_utf8_ignore_wc, run_jj_utf8_with_retry, run_jj_utf8_with_retry_cancellable,
+        run_jj_utf8_with_timeout, run_jj_with_retry, run_jj_with_retry_cancellable, run_jj_with_timeout,
+        working_file_is_binary,
     };
 }
 

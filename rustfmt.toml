@@ -1,0 +1,5 @@
+# Set to the style the code was already written in, so adopting the gate
+# reformatted as little as possible. CI runs `cargo fmt --all --check`.
+style_edition = "2024"
+max_width = 120
+use_small_heuristics = "Max"

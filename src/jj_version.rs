@@ -58,10 +58,7 @@ mod tests {
     #[test]
     fn parses_release_and_plain_version_strings() {
         assert_eq!(parse_jj_version("jj 0.45.1"), Some(v(0, 45, 1)));
-        assert_eq!(
-            parse_jj_version("jj 0.33.0-24f4e1083e8bcd6e5b8aaee3fa86e08cb7081d13"),
-            Some(v(0, 33, 0))
-        );
+        assert_eq!(parse_jj_version("jj 0.33.0-24f4e1083e8bcd6e5b8aaee3fa86e08cb7081d13"), Some(v(0, 33, 0)));
         assert_eq!(parse_jj_version("jj 1.2.3+dirty\n"), Some(v(1, 2, 3)));
     }
 

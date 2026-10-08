@@ -158,7 +158,7 @@ Not yet covered: slices 1 and 2 of that first division (`parse_jj.rs`, `parse_op
 - `src/parse_git.rs` — git output parsers (diff name-status), gated behind `git-parse` feature
 - `src/parse_op.rs` — line parsers for the op-log helpers in `runner.rs` (ungated, crate-private)
 - `src/fuzz_api.rs` — fuzz-only entry points to crate-private parsers, compiled only under `cargo fuzz`
-- `tests/file_length.rs` — the file-length ratchet: 400 production lines per file, `src/runner.rs` pinned; new code goes in a new module
+- `tests/file_length.rs` — the file-length ratchet: 400 production lines per file, nothing pinned (`src/runner.rs` was, until the rustfmt reformat brought it to 356); new code goes in a new module
 - `src/types.rs` — shared types like `LogEntry`, `Bookmark`, `FileChange`
 
 The current self-contained implementation will eventually move its generic subprocess primitives to depend on `procpilot`. Until that migration completes, vcs-runner ships its own `RunError`/`RunOutput`/etc.

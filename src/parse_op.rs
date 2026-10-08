@@ -11,10 +11,7 @@ use crate::types::JjOperation;
 pub(crate) fn parse_operation_log(out: &str) -> Vec<JjOperation> {
     out.lines()
         .filter_map(|line| {
-            line.split_once('\t').map(|(id, desc)| JjOperation {
-                id: id.to_string(),
-                description: desc.to_string(),
-            })
+            line.split_once('\t').map(|(id, desc)| JjOperation { id: id.to_string(), description: desc.to_string() })
         })
         .collect()
 }
@@ -44,10 +41,7 @@ mod tests {
     #[test]
     fn operation_log_skips_lines_without_a_tab() {
         assert!(parse_operation_log("no tab here\n\n").is_empty());
-        assert_eq!(
-            parse_operation_log("abc\t\n"),
-            vec![JjOperation { id: "abc".into(), description: String::new() }]
-        );
+        assert_eq!(parse_operation_log("abc\t\n"), vec![JjOperation { id: "abc".into(), description: String::new() }]);
     }
 
     #[test]

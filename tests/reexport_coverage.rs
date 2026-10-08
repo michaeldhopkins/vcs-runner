@@ -28,18 +28,16 @@
 #[allow(unused_imports, dead_code)]
 mod upstream_surface {
     pub use procpilot::{
-        Cmd, CmdDisplay, DefaultRunner, Redirection, RetryPolicy, RunError, RunOutput, Runner,
-        STREAM_SUFFIX_SIZE, SpawnedProcess, StdinData, binary_available, binary_version,
-        default_transient,
+        Cmd, CmdDisplay, DefaultRunner, Redirection, RetryPolicy, RunError, RunOutput, Runner, STREAM_SUFFIX_SIZE,
+        SpawnedProcess, StdinData, binary_available, binary_version, default_transient,
     };
 }
 
 #[allow(unused_imports, dead_code)]
 mod our_reexports {
     pub use vcs_runner::{
-        Cmd, CmdDisplay, DefaultRunner, Redirection, RetryPolicy, RunError, RunOutput, Runner,
-        STREAM_SUFFIX_SIZE, SpawnedProcess, StdinData, binary_available, binary_version,
-        default_transient,
+        Cmd, CmdDisplay, DefaultRunner, Redirection, RetryPolicy, RunError, RunOutput, Runner, STREAM_SUFFIX_SIZE,
+        SpawnedProcess, StdinData, binary_available, binary_version, default_transient,
     };
 }
 

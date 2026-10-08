@@ -20,7 +20,9 @@ use std::process::{Command, Output};
 use crate::jj_version::{divergent_change_id_query, parse_jj_version};
 use crate::parse_op::{parse_id_lines, parse_operation_log};
 use crate::types::{FileChangeKind, RemoteStatus, WorkingCopy};
-use crate::{BOOKMARK_TEMPLATE, LOG_TEMPLATE, parse_bookmark_output, parse_diff_summary, parse_log_output, parse_remote_list};
+use crate::{
+    BOOKMARK_TEMPLATE, LOG_TEMPLATE, parse_bookmark_output, parse_diff_summary, parse_log_output, parse_remote_list,
+};
 
 const OP_LOG_TEMPLATE: &str = r#"id ++ "\t" ++ description.first_line() ++ "\n""#;
 
@@ -86,8 +88,8 @@ fn rename(root: &Path, from: &str, to: &str) {
 #[ignore = "captures fixtures from the jj named by VCS_RUNNER_CAPTURE_JJ"]
 fn capture_fixtures() {
     let jj = PathBuf::from(std::env::var("VCS_RUNNER_CAPTURE_JJ").expect("set VCS_RUNNER_CAPTURE_JJ"));
-    let raw_version = String::from_utf8(Command::new(&jj).arg("--version").output().expect("jj --version").stdout)
-        .expect("utf-8");
+    let raw_version =
+        String::from_utf8(Command::new(&jj).arg("--version").output().expect("jj --version").stdout).expect("utf-8");
     let v = parse_jj_version(&raw_version).expect("a jj version");
     let tmp = tempfile::tempdir().expect("tempdir");
     let config = tmp.path().join("config.toml");
@@ -130,8 +132,31 @@ fn capture_fixtures() {
     c.ok(&["git", "remote", "add", "origin", remote_git.to_str().expect("utf-8 path")]);
     c.ok(&["bookmark", "create", "feature", "\"feat@v2\"", "local-only", "synced", "-r", "@-"]);
     for pattern in ["exact:feat@v2", "exact:\"feat@v2\""] {
-        let with_new: &[&str] = &["git", "push", "--remote", "origin", "--bookmark", "feature", "--bookmark", "synced", "--bookmark", pattern, "--allow-new"];
-        let without: &[&str] = &["git", "push", "--remote", "origin", "--bookmark", "feature", "--bookmark", "synced", "--bookmark", pattern];
+        let with_new: &[&str] = &[
+            "git",
+            "push",
+            "--remote",
+            "origin",
+            "--bookmark",
+            "feature",
+            "--bookmark",
+            "synced",
+            "--bookmark",
+            pattern,
+            "--allow-new",
+        ];
+        let without: &[&str] = &[
+            "git",
+            "push",
+            "--remote",
+            "origin",
+            "--bookmark",
+            "feature",
+            "--bookmark",
+            "synced",
+            "--bookmark",
+            pattern,
+        ];
         if c.run(with_new).status.success() || c.run(without).status.success() {
             break;
         }
@@ -183,7 +208,11 @@ fn capture_fixtures() {
         ("op-log.txt", c.ok(&["op", "log", "--no-graph", "-n", "6", "-T", OP_LOG_TEMPLATE, "--ignore-working-copy"])),
         ("divergent.txt", divergent),
         // The remote's URL is a scratch path on the capturing machine; it is not kept.
-        ("remote-list.txt", c.ok(&["git", "remote", "list", "--ignore-working-copy"]).replace(remote_git.to_str().expect("utf-8 path"), "/scratch/remote.git")),
+        (
+            "remote-list.txt",
+            c.ok(&["git", "remote", "list", "--ignore-working-copy"])
+                .replace(remote_git.to_str().expect("utf-8 path"), "/scratch/remote.git"),
+        ),
     ];
     let dir = fixtures_root().join(format!("{}.{}.{}", v.major, v.minor, v.patch));
     std::fs::create_dir_all(&dir).expect("mkdir fixtures");
@@ -214,13 +243,14 @@ fn check_version(version: &str) {
 }
 
 fn check_diff_summary(version: &str) {
-    let mut changes: Vec<(FileChangeKind, String, Option<String>)> = parse_diff_summary(&fixture(version, "diff-summary.txt"))
-        .into_iter()
-        .map(|c| {
-            let show = |p: &Path| p.to_string_lossy().into_owned();
-            (c.kind, show(&c.path), c.from_path.as_deref().map(show))
-        })
-        .collect();
+    let mut changes: Vec<(FileChangeKind, String, Option<String>)> =
+        parse_diff_summary(&fixture(version, "diff-summary.txt"))
+            .into_iter()
+            .map(|c| {
+                let show = |p: &Path| p.to_string_lossy().into_owned();
+                (c.kind, show(&c.path), c.from_path.as_deref().map(show))
+            })
+            .collect();
     changes.sort_by(|a, b| a.1.cmp(&b.1));
     let r = |from: &str, to: &str| (FileChangeKind::Renamed, to.to_string(), Some(from.to_string()));
     let m = |path: &str| (FileChangeKind::Modified, path.to_string(), None);
@@ -246,7 +276,11 @@ fn check_bookmarks(version: &str) {
     got.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(
         got,
-        vec![("feature".to_string(), RemoteStatus::Unsynced), ("local-only".to_string(), RemoteStatus::Local), ("synced".to_string(), RemoteStatus::Synced)],
+        vec![
+            ("feature".to_string(), RemoteStatus::Unsynced),
+            ("local-only".to_string(), RemoteStatus::Local),
+            ("synced".to_string(), RemoteStatus::Synced)
+        ],
         "jj {version} bookmark list"
     );
     let mut skipped = parsed.skipped.clone();
@@ -287,11 +321,11 @@ fn check_log(version: &str) {
 fn check_op_log(version: &str) {
     let ops = parse_operation_log(&fixture(version, "op-log.txt"));
     assert_eq!(ops.len(), 6, "jj {version}: {ops:?}");
-    assert!(ops.iter().all(|o| o.id.len() >= 64 && o.id.chars().all(|c| c.is_ascii_hexdigit())), "jj {version}: {ops:?}");
     assert!(
-        ops.iter().any(|o| o.description.contains("reconcile divergent operations")),
+        ops.iter().all(|o| o.id.len() >= 64 && o.id.chars().all(|c| c.is_ascii_hexdigit())),
         "jj {version}: {ops:?}"
     );
+    assert!(ops.iter().any(|o| o.description.contains("reconcile divergent operations")), "jj {version}: {ops:?}");
 }
 
 fn check_divergent(version: &str) {

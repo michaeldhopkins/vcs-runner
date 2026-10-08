@@ -39,19 +39,11 @@ pub fn parse_git_diff_name_status(output: &str) -> Vec<FileChange> {
                 let (Some(from), Some(to)) = (parts.next(), parts.next()) else {
                     continue;
                 };
-                changes.push(FileChange {
-                    kind,
-                    path: git_path(to),
-                    from_path: Some(git_path(from)),
-                });
+                changes.push(FileChange { kind, path: git_path(to), from_path: Some(git_path(from)) });
             }
             _ => {
                 let Some(path) = parts.next() else { continue };
-                changes.push(FileChange {
-                    kind,
-                    path: git_path(path),
-                    from_path: None,
-                });
+                changes.push(FileChange { kind, path: git_path(path), from_path: None });
             }
         }
     }
