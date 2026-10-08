@@ -56,14 +56,14 @@ syn = { version = "2", features = ["full", "visit"] }
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 
 [lints.clippy]
-struct-excessive-bools = "deny"
-fn-params-excessive-bools = "deny"
-collapsible-if = "deny"
-too-many-arguments = "deny"
-needless-range-loop = "deny"
+struct_excessive_bools = "deny"
+fn_params_excessive_bools = "deny"
+collapsible_if = "deny"
+too_many_arguments = "deny"
+needless_range_loop = "deny"
 extend_with_drain = "deny"
 unwrap_used = "deny"
 match_bool = "warn"
 bool_to_int_with_if = "warn"
-cognitive-complexity = "warn"
-too-many-lines = "warn"
+cognitive_complexity = "warn"
+too_many_lines = "warn"
