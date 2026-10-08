@@ -16,7 +16,7 @@ Subprocess runner for [jj](https://jj-vcs.github.io/jj/) and git CLI tools, with
 
 ```toml
 [dependencies]
-vcs-runner = "0.18"
+vcs-runner = "0.19"
 ```
 
 ### Supported jj versions
@@ -32,7 +32,7 @@ Git-only consumers can skip jj parsing:
 
 ```toml
 [dependencies]
-vcs-runner = { version = "0.18", default-features = false, features = ["git-parse"] }
+vcs-runner = { version = "0.19", default-features = false, features = ["git-parse"] }
 ```
 
 ## Running commands

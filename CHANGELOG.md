@@ -4,6 +4,20 @@ All notable changes to vcs-runner are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-10-08
+
+### Breaking
+
+- **procpilot 0.9.** The re-exported `Cmd`, `RunError`, `SpawnedProcess` and the rest now come from procpilot 0.9, so a crate that also depends on procpilot directly needs 0.9 for the types to match. Dropping a `SpawnedProcess` now kills and reaps every stage still running, as `AsyncSpawnedProcess` already did. To let a child outlive its handle, spawn it with `std::process::Command`.
+
+### Bug Fixes
+
+From procpilot 0.9:
+
+- `run_jj*` and `run_git*` resolve `jj` and `git` through `PATH` once, then spawn them by path.
+- With the re-exported `Cmd`, a one-shot `StdinData::Reader` taken by an earlier attempt now leaves a retry an empty stdin, as documented. A retry used to inherit the parent's stdin, where a child that reads stdin could wait forever.
+- `CmdDisplay`, used in every `RunError` message, quotes a program that a shell would read as an assignment or a reserved word.
+
 ## [0.18.0] - 2026-09-26
 
 Supports jj 0.33 and later, tested against real output from jj 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0 and 0.45.1 (see "Supported jj versions" in the README).
