@@ -29,6 +29,9 @@ on:
 # Never cancel a running burst: a cancelled job swallows a failing crash check. GitHub
 # keeps one pending run per group, so pushes landing mid-burst collapse into the newest,
 # which fuzzes the latest code anyway.
+permissions:
+  contents: read
+
 concurrency:
   group: fuzz-burst
   cancel-in-progress: false
