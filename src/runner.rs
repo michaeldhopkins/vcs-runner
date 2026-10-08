@@ -603,6 +603,43 @@ mod tests {
     }
 
     #[test]
+    fn jj_merge_base_finds_common_ancestor() {
+        if !jj_installed() {
+            return;
+        }
+        let repo = TestRepo::new(false);
+        repo.seed_two_commits();
+        let parent = String::from_utf8(repo.jj(&["log", "-r", "@-", "--no-graph", "-T", "commit_id"]).stdout).unwrap();
+        assert_eq!(parent.len(), 40, "a full commit id: {parent:?}");
+        assert_eq!(jj_merge_base(repo.path(), "@", "@-").unwrap(), Some(parent));
+    }
+
+    // Every jj commit descends from root(), so histories that share nothing else
+    // still meet there; only an empty revset gives None.
+    #[test]
+    fn jj_merge_base_of_unrelated_is_root_and_of_nothing_is_none() {
+        if !jj_installed() {
+            return;
+        }
+        let repo = TestRepo::new(false);
+        repo.seed_two_commits();
+        let b = String::from_utf8(repo.jj(&["log", "-r", "@", "--no-graph", "-T", "commit_id"]).stdout).unwrap();
+        repo.jj(&["new", "root()", "-m", "C"]);
+        assert_eq!(jj_merge_base(repo.path(), "@", &b).unwrap(), Some("0".repeat(40)));
+        assert_eq!(jj_merge_base(repo.path(), "@", "none()").unwrap(), None);
+    }
+
+    #[test]
+    fn jj_merge_base_errors_on_unknown_revision() {
+        if !jj_installed() {
+            return;
+        }
+        let repo = TestRepo::new(false);
+        let err = jj_merge_base(repo.path(), "@", "no-such-rev").unwrap_err();
+        assert!(matches!(err, RunError::NonZeroExit { .. }), "got {err:?}");
+    }
+
+    #[test]
     fn operation_log_detection_and_op_restore_recovery() {
         if !jj_installed() {
             return;
