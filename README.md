@@ -21,7 +21,7 @@ vcs-runner = "0.19"
 
 ### Supported jj versions
 
-jj 0.33 and later. The parsers are tested against real output from jj 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0 and 0.45.1, and the helpers that run jj are tested against each of those binaries. Where jj's own spelling changed (the `divergent()` revset arrived in 0.38), vcs-runner checks `jj --version` and uses what that jj accepts.
+jj 0.33 and later. The parsers are tested against jj 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0, 0.45.1 and 0.46.0, and the helpers that run jj are tested against each of those binaries. Where jj's own spelling changed (the `divergent()` revset arrived in 0.38), vcs-runner checks `jj --version` and uses what that jj accepts.
 
 ### Cargo features
 
