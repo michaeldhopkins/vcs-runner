@@ -5,6 +5,7 @@ VCS-specific helpers on top of generic subprocess execution: jj/git wrappers, re
 ## Pre-commit checklist
 
 Before every commit, verify:
+0. [ ] `cargo fmt --all` leaves nothing to change
 1. [ ] `cargo clippy --all-features --all-targets -- -D warnings` passes
 2. [ ] `cargo clippy --no-default-features --all-targets -- -D warnings` passes
 3. [ ] `cargo test --all-features` passes
@@ -51,6 +52,7 @@ For breaking releases, document migration steps in the commit message and releas
 ## CI expectations
 
 CI runs on push/PR:
+- `cargo fmt --all --check`, for the crate and for `fuzz/` (config: `rustfmt.toml`)
 - `cargo check --locked` (default and `--no-default-features`)
 - `cargo test --locked` (default and `--no-default-features`)
 - `cargo clippy --locked --all-targets -- -D warnings` (both feature configs)
