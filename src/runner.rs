@@ -195,11 +195,17 @@ pub fn run_git_utf8_with_retry_cancellable(
 ///
 /// Uses the revset `latest(::(a) & ::(b))` — the most recent common ancestor
 /// of the two revisions. Returns `Ok(None)` when the revisions have no common
-/// ancestor.
+/// ancestor, which includes the case where the only one is jj's `root()`
+/// (the all-zero commit id), as with `git_merge_base`.
 pub fn jj_merge_base(repo_path: &Path, a: &str, b: &str) -> Result<Option<String>, RunError> {
     let revset = format!("latest(::({a}) & ::({b}))");
     let id = run_jj_utf8(repo_path, &["log", "-r", &revset, "--no-graph", "--limit", "1", "-T", "commit_id"])?;
-    Ok(if id.is_empty() { None } else { Some(id) })
+    Ok(real_commit_id(id))
+}
+
+/// `None` for jj's `root()`, whose id is all zeros, and for no output at all.
+fn real_commit_id(id: String) -> Option<String> {
+    if id.bytes().all(|b| b == b'0') { None } else { Some(id) }
 }
 
 // --- jj operation log ---
@@ -807,9 +813,9 @@ mod tests {
     }
 
     // Every jj commit descends from root(), so histories that share nothing else
-    // still meet there; only an empty revset gives None.
+    // still meet there; that is no common ancestor, as in git_merge_base.
     #[test]
-    fn jj_merge_base_of_unrelated_is_root_and_of_nothing_is_none() {
+    fn jj_merge_base_of_unrelated_and_of_nothing_is_none() {
         if !jj_installed() {
             return;
         }
@@ -817,8 +823,22 @@ mod tests {
         repo.seed_two_commits();
         let b = String::from_utf8(repo.jj(&["log", "-r", "@", "--no-graph", "-T", "commit_id"]).stdout).unwrap();
         repo.jj(&["new", "root()", "-m", "C"]);
-        assert_eq!(jj_merge_base(repo.path(), "@", &b).unwrap(), Some("0".repeat(40)));
+        assert_eq!(jj_merge_base(repo.path(), "@", &b).unwrap(), None);
         assert_eq!(jj_merge_base(repo.path(), "@", "none()").unwrap(), None);
+    }
+
+    #[test]
+    fn real_commit_id_rejects_root_and_empty() {
+        assert_eq!(real_commit_id("0".repeat(40)), None);
+        assert_eq!(real_commit_id(String::new()), None);
+        assert!(real_commit_id("0000000000000000000000000000000000000001".into()).is_some());
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn real_commit_id_keeps_every_id_with_a_nonzero_digit(id in "[0-9a-f]{0,39}[1-9a-f][0-9a-f]{0,39}") {
+            proptest::prop_assert_eq!(real_commit_id(id.clone()), Some(id));
+        }
     }
 
     #[test]

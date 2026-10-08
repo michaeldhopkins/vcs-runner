@@ -4,6 +4,12 @@ All notable changes to vcs-runner are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-10-08
+
+### Bug Fixes
+
+- `jj_merge_base` returns `Ok(None)` when the only common ancestor is jj's `root()`, the all-zero commit id, as `git_merge_base` and the documentation already said. It used to return `Some` of forty zeros for revisions that share no history.
+
 ## [0.19.0] - 2026-10-08
 
 ### Breaking
