@@ -26,7 +26,7 @@ From procpilot 0.9:
 
 ## [0.18.0] - 2026-09-26
 
-Supports jj 0.33 and later, tested against real output from jj 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0 and 0.45.1 (see "Supported jj versions" in the README).
+Supports jj 0.33 and later, tested against jj 0.33.0, 0.36.0, 0.37.0, 0.38.0, 0.40.0 and 0.45.1 (see "Supported jj versions" in the README).
 
 ### Breaking
 
