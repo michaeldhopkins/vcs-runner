@@ -126,16 +126,13 @@ jobs:
             echo "::warning::Mutants skipped: $selected selected, over the limit of $MAX_SELECTED. Nothing was mutation-tested for this push."
             exit 0
           fi
+          # scripts/mutants-run.sh decides the verdict from mutants.out/missed.txt, so exit 3 passes only when nothing was missed, and stops cargo-mutants at a time budget.
           # Exit codes: 2 a mutant was MISSED (the finding); 3 a mutant TIMED OUT, counted
           # as caught (an injected infinite loop; c_unquote has two, see AGENTS.md); 5 or
           # 6 the diff does not match the tree or is malformed, a bug in "Compute diff".
           # No --timeout: cargo-mutants derives one from the measured baseline.
           rc=0
-          cargo mutants --no-shuffle -vV --in-diff mutants.diff || rc=$?
-          if [ "$rc" -eq 3 ]; then
-            echo "::notice::timeouts counted as caught; see mutants.out/timeout.txt"
-            rc=0
-          fi
+          scripts/mutants-run.sh --no-shuffle -vV --in-diff mutants.diff || rc=$?
           exit "$rc"
 
       - name: Summarise
@@ -254,11 +251,7 @@ jobs:
           echo "$k/$MUTANTS_SLICES" > mutants-shard.txt
           echo "Slice $k of $MUTANTS_SLICES"
           rc=0
-          cargo mutants --no-shuffle -vV --shard "$k/$MUTANTS_SLICES" || rc=$?
-          if [ "$rc" -eq 3 ]; then
-            echo "::notice::timeouts counted as caught; see mutants.out/timeout.txt"
-            rc=0
-          fi
+          MUTANTS_BUDGET_PASSES=1 scripts/mutants-run.sh --no-shuffle -vV --shard "$k/$MUTANTS_SLICES" || rc=$?
           exit "$rc"
 
       - name: Summarise
