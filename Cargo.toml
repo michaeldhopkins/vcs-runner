@@ -49,7 +49,7 @@ serde_json = "1"
 # each file's count; a text scan is fooled by strings and comments. `span-locations` gives it
 # exact line spans.
 proc-macro2 = { version = "1", features = ["span-locations"] }
-syn = { version = "2", features = ["full", "visit"] }
+syn = { version = "3", features = ["full", "visit"] }
 proptest = "1"
 toml = "0.9"
 
