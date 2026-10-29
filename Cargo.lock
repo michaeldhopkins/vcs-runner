@@ -540,7 +540,6 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
- "syn",
  "tempfile",
  "toml",
 ]
