@@ -8,10 +8,10 @@ max-struct-bools = 2
 max-fn-params-bools = 2
 
 # Cognitive complexity threshold (default is 25)
-cognitive-complexity-threshold = 30
+cognitive-complexity-threshold = 25
 
 # Max lines in a function - set above current max to catch growth
-too-many-lines-threshold = 275
+too-many-lines-threshold = 100
 
 # Max function arguments - vcs-runner is a library with focused APIs
 too-many-arguments-threshold = 10

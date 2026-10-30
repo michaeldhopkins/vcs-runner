@@ -1,1 +1,8 @@
 # Declarative quality ratchet manifest.
+
+# Count of #[allow]/#[expect] attributes under src/ and tests/. May only fall.
+suppressions = 4
+
+[pinned_thresholds]
+# clippy.toml thresholds still looser than clippy's default; each may only move toward it.
+too-many-arguments-threshold = 10

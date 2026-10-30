@@ -84,6 +84,41 @@ fn rename(root: &Path, from: &str, to: &str) {
     std::fs::rename(root.join(from), to).expect("rename");
 }
 
+/// Pushes `feature`, `synced` and `feat@v2` to `origin`, trying each spelling of the
+/// quoted name (with `--allow-new` first, then without) until a jj version accepts one.
+fn push_bookmarks(c: &Capture) {
+    for pattern in ["exact:feat@v2", "exact:\"feat@v2\""] {
+        let with_new: &[&str] = &[
+            "git",
+            "push",
+            "--remote",
+            "origin",
+            "--bookmark",
+            "feature",
+            "--bookmark",
+            "synced",
+            "--bookmark",
+            pattern,
+            "--allow-new",
+        ];
+        let without: &[&str] = &[
+            "git",
+            "push",
+            "--remote",
+            "origin",
+            "--bookmark",
+            "feature",
+            "--bookmark",
+            "synced",
+            "--bookmark",
+            pattern,
+        ];
+        if c.run(with_new).status.success() || c.run(without).status.success() {
+            break;
+        }
+    }
+}
+
 #[test]
 #[ignore = "captures fixtures from the jj named by VCS_RUNNER_CAPTURE_JJ"]
 fn capture_fixtures() {
@@ -131,36 +166,7 @@ fn capture_fixtures() {
     c.ok(&["new", "@-"]);
     c.ok(&["git", "remote", "add", "origin", remote_git.to_str().expect("utf-8 path")]);
     c.ok(&["bookmark", "create", "feature", "\"feat@v2\"", "local-only", "synced", "-r", "@-"]);
-    for pattern in ["exact:feat@v2", "exact:\"feat@v2\""] {
-        let with_new: &[&str] = &[
-            "git",
-            "push",
-            "--remote",
-            "origin",
-            "--bookmark",
-            "feature",
-            "--bookmark",
-            "synced",
-            "--bookmark",
-            pattern,
-            "--allow-new",
-        ];
-        let without: &[&str] = &[
-            "git",
-            "push",
-            "--remote",
-            "origin",
-            "--bookmark",
-            "feature",
-            "--bookmark",
-            "synced",
-            "--bookmark",
-            pattern,
-        ];
-        if c.run(with_new).status.success() || c.run(without).status.success() {
-            break;
-        }
-    }
+    push_bookmarks(&c);
 
     for (from, to) in [
         ("src/a.rs", "src/b.rs"),
